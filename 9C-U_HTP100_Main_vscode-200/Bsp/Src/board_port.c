@@ -1,0 +1,264 @@
+#include "board_port.h"
+
+#include "FreeRTOS.h"
+#include "ads1220_driver.h"
+#include "app_config.h"
+#include "app_controller.h"
+#include "app_log.h"
+#include "button_debounce.h"
+#include "charger_driver.h"
+#include "eye_driver.h"
+#include "main.h"
+#include "pressure_tuning.h"
+#include "screen_protocol.h"
+#include "screen_uart.h"
+#include "storage_driver.h"
+#include "task.h"
+#include "treatment_hw.h"
+#include "ws2812_driver.h"
+
+#define BOARD_ADS_RETRY_PERIOD_MS 2000U
+
+static volatile bool g_button_event;
+static ButtonDebounce g_button_debounce;
+static volatile bool g_power_loss_event;
+static bool g_ads_ready;
+static uint32_t g_ads_last_retry_ms;
+/* GPIO initialization enables LCD_PW. Delay only a subsequent off-to-on. */
+static bool g_screen_power_enabled = true;
+static bool g_screen_power_on_pending;
+static uint32_t g_screen_power_on_started_ms;
+
+static uint32_t board_now_ms(void)
+{
+    return HAL_GetTick();
+}
+
+static bool board_eye_mark_consumed(void)
+{
+    if (!EyeDriver_MarkConsumed()) {
+        return false;
+    }
+    StorageDriver_IncrementEyeReplacement();
+    return true;
+}
+
+static AppFault board_pressure_zero_calibrate(void)
+{
+    Ads1220Result result;
+
+    if (!Ads1220Driver_Ready() && !Ads1220Driver_Init()) {
+        LOGE("[ADS1220] Zero calibration skipped: ADC initialization unavailable");
+        return APP_FAULT_PRESSURE_COMM;
+    }
+    g_ads_ready = true;
+    for (uint8_t attempt = 1U; attempt <= APP_PRESSURE_ZERO_TRIES; ++attempt) {
+        result = Ads1220Driver_ZeroCalibrate();
+        if (result == ADS1220_RESULT_OK) break;
+        LOGW("[ADS1220] Zero attempt=%u/%u failed result=%u",
+             (unsigned)attempt, (unsigned)APP_PRESSURE_ZERO_TRIES,
+             (unsigned)result);
+        if (attempt < APP_PRESSURE_ZERO_TRIES) {
+            vTaskDelay(pdMS_TO_TICKS(APP_PRESSURE_ZERO_RETRY_MS));
+        }
+    }
+    if (result == ADS1220_RESULT_OK) {
+        return APP_FAULT_NONE;
+    }
+    if (result == ADS1220_RESULT_SENSOR_SHORT ||
+        result == ADS1220_RESULT_SENSOR_OPEN) {
+        return APP_FAULT_PRESSURE_SENSOR;
+    }
+    return result == ADS1220_RESULT_ZERO_UNSTABLE ?
+           APP_FAULT_PRESSURE_ZERO : APP_FAULT_PRESSURE_COMM;
+}
+
+static bool board_power_read(bool *charging, bool *full, uint16_t *soc,
+                             uint16_t *millivolts)
+{
+    if (!ChargerDriver_Read(charging, full, soc, millivolts)) {
+        /* Unknown power state must not complete a pending power-on. */
+        g_screen_power_on_pending = false;
+        return false;
+    }
+    /* Keep polling normally while the supply settles after USB removal.
+     * Every completion is backed by a fresh charger read; reinsertion cancels
+     * the pending enable. Debug mode retains its always-on screen policy. */
+    if (AppController_DebugMode()) {
+        g_screen_power_on_pending = false;
+        g_screen_power_enabled = true;
+        ScreenUart_SetPower(true);
+    } else if (*charging) {
+        g_screen_power_on_pending = false;
+        g_screen_power_enabled = false;
+        ScreenUart_SetPower(false);
+    } else if (!g_screen_power_enabled) {
+        uint32_t now = HAL_GetTick();
+        if (!g_screen_power_on_pending) {
+            g_screen_power_on_started_ms = now;
+            g_screen_power_on_pending = true;
+        }
+        if (now - g_screen_power_on_started_ms >= APP_SCREEN_POWER_ON_DELAY_MS) {
+            ScreenUart_SetPower(true);
+            g_screen_power_enabled = true;
+            g_screen_power_on_pending = false;
+            LOGI("[Screen] Power enabled after USB removal delay");
+        }
+    }
+    return true;
+}
+
+static void board_power_latch_off(void)
+{
+    LOGW("[Power] BATFET shutdown requested");
+    TreatmentHw_SafeOutputsOff();
+    ChargerDriver_PowerLatchOff();
+}
+
+static void board_fault_report(AppFault fault)
+{
+#if APP_ENABLE_SCREEN_FAULT_REPORT
+    ScreenProtocol_SendU32(0x2F01U, (uint32_t)fault);
+    LOGE("[Screen TX] Fault code=0x%08lX", (unsigned long)fault);
+#else
+    (void)fault;
+#endif
+}
+
+static const AppPort g_port = {
+    .now_ms = board_now_ms,
+    .safe_outputs_off = TreatmentHw_SafeOutputsOff,
+    .heater_control = TreatmentHw_HeaterControl,
+    .pressure_control_start = TreatmentHw_PressureStart,
+    .pressure_control_step = TreatmentHw_PressureStep,
+    .pressure_control_stop = TreatmentHw_PressureStop,
+    .home_begin = TreatmentHw_HomeBegin,
+    .home_poll = TreatmentHw_HomePoll,
+    .home_cancel = TreatmentHw_HomeCancel,
+    .pressure_zero_calibrate = board_pressure_zero_calibrate,
+    .eye_read_state = EyeDriver_ReadState,
+    .eye_mark_consumed = board_eye_mark_consumed,
+    .power_read = board_power_read,
+    .power_latch_off = board_power_latch_off,
+    .led_set = Ws2812Driver_Set,
+    .counter_increment = StorageDriver_IncrementCounter,
+    .screen_boot_sync = StorageDriver_ScreenBootSync,
+    .storage_read_u16 = StorageDriver_ReadU16,
+    .storage_write_u16 = StorageDriver_WriteU16,
+    .storage_erase_main = StorageDriver_EraseMain,
+    .storage_erase_eye = EyeDriver_Erase,
+    .screen_float = ScreenProtocol_SendFloat,
+    .screen_u16 = ScreenProtocol_SendU16,
+    .screen_u32 = ScreenProtocol_SendU32,
+    .fault_report = board_fault_report
+};
+
+bool Board_Init(void)
+{
+    bool charging;
+    bool full;
+    uint16_t soc;
+    uint16_t millivolts;
+
+    TreatmentHw_Init();
+    Ads1220Driver_PreparePins();
+    StorageDriver_PreparePins();
+    EyeDriver_Init();
+    Ws2812Driver_Init();
+    if (!ChargerDriver_Init()) {
+        return false;
+    }
+    /* Apply the USB/charging screen policy before starting the screen UART so
+     * a USB cold start does not visibly flash the display for one poll cycle. */
+    if (!board_power_read(&charging, &full, &soc, &millivolts)) {
+        ScreenUart_SetPower(true);
+    }
+    /* Load validated external pressure profiles (or compiled defaults) before
+     * the ADC can perform conversion-to-pressure validation. */
+    StorageDriver_Init();
+    PressureTuning_Init();
+    g_ads_ready = Ads1220Driver_Init();
+    if (!g_ads_ready) {
+        LOGW("[ADS1220] Startup degraded; UI, charging and non-pressure functions remain available");
+        g_ads_last_retry_ms = HAL_GetTick();
+    }
+    return ScreenUart_Init();
+}
+
+const AppPort *Board_AppPort(void)
+{
+    return &g_port;
+}
+
+void Board_Tick(void)
+{
+    Ws2812Driver_Tick();
+    if (!g_ads_ready &&
+        HAL_GetTick() - g_ads_last_retry_ms >= BOARD_ADS_RETRY_PERIOD_MS) {
+        g_ads_last_retry_ms = HAL_GetTick();
+        LOGW("[ADS1220] Background initialization retry");
+        g_ads_ready = Ads1220Driver_RetryInit();
+        if (g_ads_ready) {
+            LOGI("[ADS1220] Background initialization recovered");
+        }
+    }
+}
+
+bool Board_ScreenWrite(const uint8_t *data, uint16_t length)
+{
+    return ScreenUart_Write(data, length);
+}
+
+size_t Board_ScreenRead(uint8_t *destination, size_t capacity)
+{
+    return ScreenUart_Read(destination, capacity);
+}
+
+bool Board_TakeButtonEvent(void)
+{
+    bool falling_edge;
+
+    taskENTER_CRITICAL();
+    falling_edge = g_button_event;
+    g_button_event = false;
+    taskEXIT_CRITICAL();
+    return ButtonDebounce_Update(&g_button_debounce,
+        HAL_GPIO_ReadPin(SW_CNT_GPIO_Port, SW_CNT_Pin) == GPIO_PIN_RESET,
+        falling_edge, HAL_GetTick());
+}
+
+bool Board_TakePowerLossEvent(void)
+{
+    bool value;
+
+    taskENTER_CRITICAL();
+    value = g_power_loss_event;
+    g_power_loss_event = false;
+    taskEXIT_CRITICAL();
+    return value;
+}
+
+void Board_UartRxEventFromIsr(uint16_t length)
+{
+    ScreenUart_RxEventFromIsr(length);
+}
+
+void Board_UartErrorFromIsr(void)
+{
+    ScreenUart_ErrorFromIsr();
+}
+
+void Board_ButtonFromIsr(void)
+{
+    g_button_event = true;
+}
+
+void Board_PowerLossFromIsr(void)
+{
+    g_power_loss_event = true;
+}
+
+void Board_Ws2812FinishedFromIsr(void)
+{
+    Ws2812Driver_FinishedFromIsr();
+}

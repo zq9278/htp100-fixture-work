@@ -1,0 +1,64 @@
+# macOS
+.DS_Store
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.code-workspace
+
+# CMake and CLion build outputs
+/build/
+/cmake-build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/compile_commands.json
+**/build.ninja
+**/.ninja_deps
+**/.ninja_log
+CMakeUserPresets.json
+
+# Generic temporary and cache files
+*.log
+*.tmp
+*.temp
+*.cache
+*.swp
+*.swo
+*~
+
+# Keil MDK user and build outputs
+MDK-ARM/.vscode/
+MDK-ARM/9C-HTP100-screen/
+MDK-ARM/DebugConfig/
+MDK-ARM/*.uvoptx
+MDK-ARM/*.uvguix.*
+MDK-ARM/JLinkLog.txt
+MDK-ARM/RTE/Device/**/*.dbgconf
+MDK-ARM/RTE/Device/**/*.dbgconf.base@*
+MDK-ARM/*.bin
+MDK-ARM/*.bak
+MDK-ARM/**/*.axf
+MDK-ARM/**/*.bin
+MDK-ARM/**/*.crf
+MDK-ARM/**/*.d
+MDK-ARM/**/*.dep
+MDK-ARM/**/*.hex
+MDK-ARM/**/*.htm
+MDK-ARM/**/*.iex
+MDK-ARM/**/*.lnp
+MDK-ARM/**/*.lst
+MDK-ARM/**/*.map
+MDK-ARM/**/*.o
+MDK-ARM/**/*.sct.Bak
+
+# LVGL host/demo generated files
+lvgl/build-sdl/
+lvgl/build-sdl-host/
+lvgl/captures/
+lvgl/node_modules/
+
+# Local notes and firmware drop folders
+屏幕/*.hex
+提示词.txt
+记录.docx

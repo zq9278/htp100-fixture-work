@@ -1,0 +1,70 @@
+/* USER CODE BEGIN Header */
+/**
+ ******************************************************************************
+ * @file    ltdc.h
+ * @brief   This file contains all the function prototypes for
+ *          the ltdc.c file
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2024 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
+/* USER CODE END Header */
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __LTDC_H__
+#define __LTDC_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+
+/* USER CODE BEGIN Includes */
+
+/* USER CODE END Includes */
+
+extern LTDC_HandleTypeDef hltdc;
+
+/* USER CODE BEGIN Private defines */
+#define LCD_WIDTH 480
+#define LCD_HEIGHT 640
+#define LCD_FRAME_BUF_ADDR 0XC0000000
+/* USER CODE END Private defines */
+
+void MX_LTDC_Init(void);
+
+/* USER CODE BEGIN Prototypes */
+  void LTDC_Draw_Point(uint16_t x, uint16_t y, uint32_t color); // 画点函数
+  void dma2d_transfer_data_r2m(uint32_t *addr, uint32_t xSize, uint32_t ySize, uint32_t offsetLine, uint32_t color);
+
+  void DMA2D_DrawAlphaBitmap(void *pDst,
+                             void *pSrc,
+                             uint32_t xSize,
+                             uint32_t ySize,
+                             uint32_t OffLineSrc,
+                             uint32_t OffLineDst,
+                             uint32_t PixelFormat);
+  // void _DMA2D_Copy(void * pSrc, 
+  //                           void * pDst, 
+  //                                               uint32_t xSize, 
+  //                                               uint32_t ySize, 
+  //                                               uint32_t OffLineSrc, 
+  //                                               uint32_t OffLineDst, 
+  //                                               uint32_t PixelFormat);
+/* USER CODE END Prototypes */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __LTDC_H__ */
+

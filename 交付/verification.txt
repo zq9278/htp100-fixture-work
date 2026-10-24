@@ -1,0 +1,17 @@
+2026-10-21 Fixture verification
+PASS: Main + New/Old screen Release builds.
+PASS: controller result LED state matches PASS/FAIL/WAIT, including consumed rejection and removal rearm.
+PASS: actual WS2812 driver with mocked timer DMA: GRB green/red/blue/off across all 15 LEDs, reset waveform, no duplicate transfer, pending update retry and ISR buffer release.
+PASS: both screen ELFs rendered with 36px detail text, 48px result text, intentional line breaks and existing result/buzzer/cancel tests.
+NOT PERFORMED: physical flashing, actual LED color/brightness and hardware bench testing.
+
+PASS: WS2812 only PASS green / FAIL red; all remaining states blue, including idle and cancellation.
+HTP100_Fixture_Main.bin  SHA256 94e291f6b61825b4ce22ed6d04f93d8596ff8879790d4bff71487ae58d59a998
+HTP100_Fixture_Main.elf  SHA256 4ae36ce44662c77f4196cc1018e18926bbfa8a90074ebbba9af63cee747b7f04
+HTP100_Fixture_Main.hex  SHA256 65575fd6ffb1beda56bfde8eef2247c5ecdc5781e67b6950a38bce4464d4b6bf
+HTP100_Fixture_Screen_New.bin  SHA256 507c7e949a645cdc405dd42147485ae4a6500718540e7e36ed76572a969f2886
+HTP100_Fixture_Screen_New.elf  SHA256 255b66b44469ea82ce5dbdba381015b9ff32a5d58e2cb136f93693cd97293626
+HTP100_Fixture_Screen_New.hex  SHA256 ebc17a34bcea8c9a8380ffb341ef939c187123e07a36f4ed1b05abd9bc2728b4
+HTP100_Fixture_Screen_Old.bin  SHA256 058581488702b3da1c43664c5b4ee435b0d8e0342d03ecc5fd55e45ed616c609
+HTP100_Fixture_Screen_Old.elf  SHA256 9d491cd594529e929caf2b7779e615b21298c7546e1023b96d1eddefc58f15cb
+HTP100_Fixture_Screen_Old.hex  SHA256 f3ee7a35ee8acedfead23db939b24f96b6a61ca81bd97cc9002dd602b83f2eb3

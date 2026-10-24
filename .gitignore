@@ -1,0 +1,12 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+
+# Generated host-tool packages and simulator builds
+/9C-U_HTP100_Main_vscode-200/tools/pressure_tuning_host/build*/
+/9C-U_HTP100_Main_vscode-200/tools/pressure_tuning_host/dist*/
+/9C-U_HTP100_SCREEN_Picture -100/lvgl/build-sdl*/
+
+# Local flashing logs
+/交付/flash_logs/

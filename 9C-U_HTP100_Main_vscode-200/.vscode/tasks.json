@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: build Debug",
+      "type": "shell",
+      "command": "cmake --build build/Debug --parallel",
+      "problemMatcher": "$gcc",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "ST-Link: build and flash Debug",
+      "type": "process",
+      "command": "STM32_Programmer_CLI",
+      "args": [
+        "-c",
+        "port=SWD",
+        "-w",
+        "${workspaceFolder}/build/Debug/9C-HTP100-main-v2.hex",
+        "-v",
+        "-rst"
+      ],
+      "dependsOrder": "sequence",
+      "dependsOn": "CMake: build Debug",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ]
+}
