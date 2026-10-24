@@ -1,0 +1,54 @@
+# HTP100 压力检测串口协议 v1
+
+115200，8N1，小端，IEEE754 float32，独立帧头 `7B B7`。与原耗材及调参协议互不兼容。
+
+```text
+7B B7 | version:u8=1 | command:u8 | sequence:u16 | length:u8 (0..64)
+      | payload:length bytes | CRC16:u16 | 0A
+```
+
+CRC16/MODBUS：初值 FFFF，多项式 A001，覆盖帧头至 payload；总长为 `length+10`。校验错误滑动恢复。请求序号由上位机生成，响应沿用请求序号；遥测使用独立递增序号。最近一个有效变更事务原帧重复时不重复执行，正在收集的同帧重复请求等待原结果。不要用同一序号表示不同操作，也不要将此单事务缓存当作跨连接的永久去重。
+
+| 请求 | payload | 成功响应 |
+| --- | --- | --- |
+| 01 HELLO | 空 | 81 INFO + 82 CONFIG |
+| 02 GET_CONFIG | 空 | 82 CONFIG |
+| 03 TARE | 空 | 采集 1 秒后 82 CONFIG + 83 ACK |
+| 04 POINT | 空 | 采集 1 秒后 84 POINT_RESULT + 83 ACK |
+| 05 SET_CONFIG | `zero:i32, grams_per_count:f32, area_mm2:f32, flags:u8=3` | 82 CONFIG + 83 ACK |
+| 06 SAVE | 空 | 回读校验后 82 CONFIG + 83 ACK |
+| 07 START | `duration_ms:u32`（100..3600000） | 83 ACK |
+| 08 STOP | 空 | 83 ACK，保留部分结果 |
+
+失败返回 83 ACK：`request:u8, status:u8`。状态：0 成功，1 格式／命令错误，2 忙，3 传感器错误或校准缺样，4 校准不稳定，5 保存／回读失败，6 未建立零点或未校准，7 范围错误。
+
+INFO：`major:u8=1, minor:u8=0, nominal_adc_sps:u16=330`。
+
+CONFIG（18 字节）：`zero:i32, grams_per_count:f32, area_mm2:f32, flags:u8, saved_generation:u32, dirty:u8`。校准 flags：bit0 已校准，bit1 已建立零点。未校准默认 `grams_per_count=-1000/(8388607×128×0.000370)`，只用于去皮后的估算显示。
+
+POINT_RESULT（20 字节）：`raw_mean:f32, raw_sample_stddev:f32, raw_min:i32, raw_max:i32, count:u32`。设备最少要求 30 个样本，采样期间不允许通信错误或 ADC 饱和，峰峰值按当前校准／名义系数转换超过 10 mmHg 时拒绝。均值和样本标准差用 Welford 算法计算，校准不改变 ADC 配置。
+
+STATUS（90，每 50 ms 发送，52 字节）：
+
+| offset | 类型 | 内容 |
+| --- | --- | --- |
+| 0 | u32 | 设备时刻 ms，允许 uint32 回绕 |
+| 4 | i32 | 最近一次有效 ADC 原码；是否可用由 flags 判断 |
+| 8 | f32 | 未滤波压力 mmHg；无效／未零点为 NaN |
+| 12 | f32 | 显示滤波压力 mmHg；无效／未零点为 NaN |
+| 16 | f32 | 锁存最大值 mmHg；无样本为 NaN |
+| 20 | f32 | 锁存最小值 mmHg；无样本为 NaN |
+| 24 | u32 | 本次捕捉已过 ms |
+| 28 | u32 | 捕捉设定时长 ms |
+| 32 | u32 | 本次有效采样数量 |
+| 36 | u16 | 状态位 |
+| 38 | u8 | 捕捉状态：0 空闲，1 采集中，2 已完成，3 提前结束 |
+| 39 | u8 | SOC 百分比，255 未知 |
+| 40 | u16 | 电池 mV，0 未知 |
+| 42 | u32 | 本次检测到的异常采样／ADC 超时次数 |
+| 46 | u16 | 有效样本年龄 ms，最大 65535 |
+| 48 | u32 | 峰值相对本次开始的时刻 ms |
+
+状态位：bit0 最近 100 ms 内有有效样本；bit1 已校准；bit2 已建立零点；bit3 外部供电；bit4 充满；bit5 充电芯片状态有效；bit6 RAM 有未保存修改；bit7 最近采样 ADC 饱和；bit8 ADC 已初始化。ADC 饱和不作为有效压力或峰值样本。
+
+采样与捕捉由下位机完成，PC 断线不终止捕捉。捕捉／校准点收集中禁止修改校准；改变零点、灵敏度或面积后清空设备旧峰值，避免混用量纲。GET_CONFIG 可在收集中读取；所有硬件输出保持关闭。

@@ -10,7 +10,7 @@ endif()
 
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g3")
 set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
-set(CMAKE_PROJECT_NAME 9C-HTP100-main-v2)
+set(CMAKE_PROJECT_NAME HTP100-Pressure-Monitor)
 
 include(cmake/gcc-arm-none-eabi.cmake)
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
@@ -25,18 +25,17 @@ file(GLOB APP_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Bsp/Src/*.c"
 )
 
-# Fixture runtime only. Original treatment, pressure, storage/counters, motor,
-# and legacy communication modules remain in the tree but are disabled.
-# WS2812 is enabled exclusively for solid fixture result/status colors.
+# Pressure measurement only. No treatment, heater control or motor runtime.
 set(APP_SOURCES
     App/Src/app_main.c App/Src/app_hooks.c App/Src/app_log.c
-    App/Src/fixture_controller.c
-    Bsp/Src/fixture_board.c Bsp/Src/eye_driver.c Bsp/Src/treatment_hw.c
+    App/Src/pressure_monitor.c
+    Bsp/Src/fixture_board.c Bsp/Src/ads1220_driver.c Bsp/Src/storage_driver.c
     Bsp/Src/screen_uart.c Bsp/Src/charger_driver.c Bsp/Src/bq27441_gauge.c
     Bsp/Src/ws2812_driver.c
 )
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${APP_SOURCES})
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE PRESSURE_MONITOR_BUILD=1)
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/Bsp/Inc

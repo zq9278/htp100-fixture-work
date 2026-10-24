@@ -23,7 +23,9 @@
 #define ADS_CONFIG_3         0x00U
 #define ADS_BCS_SETTLE_MS    3U
 
+#ifndef PRESSURE_MONITOR_BUILD
 static int32_t g_zero_raw;
+#endif
 static int32_t g_sensor_diagnostic_raw;
 static bool g_zero_valid;
 static bool g_ready;
@@ -220,6 +222,7 @@ Ads1220Result Ads1220Driver_CheckSensor(void)
     return ADS1220_RESULT_OK;
 }
 
+#ifndef PRESSURE_MONITOR_BUILD
 float Ads1220Driver_PressureFromRaw(int32_t raw, float target_mmhg)
 {
     const PressureTuningProfile *profile = PressureTuning_ProfileForTarget(target_mmhg);
@@ -291,3 +294,4 @@ int32_t Ads1220Driver_ZeroRaw(void)
 {
     return g_zero_raw;
 }
+#endif

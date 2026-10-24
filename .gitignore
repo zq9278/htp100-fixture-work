@@ -10,3 +10,7 @@ __pycache__/
 
 # Local flashing logs
 /交付/flash_logs/
+/交付/压力传感器检测/flash_logs/
+/tools/pressure_sensor_host/build/
+/tools/pressure_sensor_host/dist/
+.pytest_cache/

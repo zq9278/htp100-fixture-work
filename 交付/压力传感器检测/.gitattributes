@@ -1,0 +1,6 @@
+# Preserve generated images byte-for-byte, including Intel HEX line endings.
+*.hex binary
+*.bin -text
+*.elf -text
+*.exe -text
+*.png -text

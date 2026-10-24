@@ -1,181 +1,103 @@
-/* Consumable fixture entry. Legacy treatment/pressure runtime is disabled below. */
 #include "app_main.h"
-#include "fixture_controller.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "main.h"
+#include "tim.h"
 #include "board_port.h"
 #include "screen_uart.h"
-#include "eye_driver.h"
-#include "treatment_hw.h"
+#include "ads1220_driver.h"
+#include "storage_driver.h"
 #include "charger_driver.h"
+#include "pressure_monitor.h"
 #include "app_log.h"
 #include "ws2812_driver.h"
-static void fixture_status_led(uint8_t state) {
-    /* WS2812 uses GRB: only PASS/FAIL override the default solid blue. */
-    uint32_t grb=state==FX_PASS?0x300000U:
-                 state==FX_FAIL?0x003000U:0x000020U;
-    Ws2812Driver_SetFixtureColor(grb);
+
+static const PressureMonitorPort port={HAL_GetTick,Board_ScreenWrite,
+    StorageDriver_ReadBytes,StorageDriver_WriteBytes};
+
+static struct {
+    bool valid, charging, full;
+    uint8_t soc;
+    uint16_t mv;
+    uint32_t updated;
+} power_status;
+
+static void outputs_off(void)
+{
+    __HAL_TIM_SET_COMPARE(&htim14,TIM_CHANNEL_1,0U);
+    (void)HAL_TIM_PWM_Stop(&htim14,TIM_CHANNEL_1);
+    HAL_GPIO_WritePin(TMC_ENN_GPIO_Port,TMC_ENN_Pin,GPIO_PIN_SET);
 }
-static const FixturePort fixture_port={
-    HAL_GetTick,TreatmentHw_SafeOutputsOff,EyeDriver_FixtureProbe,
-    TreatmentHw_HeaterControl,EyeDriver_FixturePrepare,Board_ScreenWrite,
-    EyeDriver_FixtureCheckUsable,fixture_status_led
-};
-void AppMain_Task(void *argument) {
+
+static void power_poll(void)
+{
+    bool charging=false, full=false;
+    uint16_t soc=0,mv=0;
+    bool ok=ChargerDriver_Read(&charging,&full,&soc,&mv);
+    bool gauge=ChargerDriver_GaugeValid();
+    taskENTER_CRITICAL();
+    power_status.valid=ok; power_status.charging=charging; power_status.full=full;
+    power_status.soc=gauge?(uint8_t)soc:255; power_status.mv=gauge?mv:0;
+    power_status.updated=HAL_GetTick();
+    taskEXIT_CRITICAL();
+}
+
+static void power_task(void *argument)
+{
     (void)argument;
-    AppLog_Init();
-    TreatmentHw_Init(); /* PID defaults retained; motor remains disabled. */
-    EyeDriver_Init();
-    /* Keep supply configuration; gauge/pressure failures do not block the fixture UI. */
-    (void)ChargerDriver_Init();
-    Ws2812Driver_Init();
-    ScreenUart_SetPower(true);
-    (void)ScreenUart_Init();
-    Fixture_Init(&fixture_port);
-    for(;;) {
-        uint8_t data[128];
-        size_t count=Board_ScreenRead(data,sizeof(data));
-        if(count) Fixture_Feed(data,count);
-        if(Board_TakePowerLossEvent()) Fixture_PowerLost();
-        Fixture_Tick();
-        Ws2812Driver_Tick();
-        vTaskDelay(pdMS_TO_TICKS(10U));
-    }
-}
-#if 0 /* Original product entry: treatment, pressure, homing, counters and old protocols. */
-#include "app_main.h"
-
-#include "FreeRTOS.h"
-#include "app_config.h"
-#include "app_controller.h"
-#include "app_log.h"
-#include "board_port.h"
-#include "eye_driver.h"
-#include "main.h"
-#include "product_config.h"
-#include "screen_protocol.h"
-#include "storage_driver.h"
-#include "task.h"
-#include "tuning_protocol.h"
-
-#define SCREEN_EARLY_BOOT_WINDOW_MS 250U
-
-static void reply_language_before_board_init(void)
-{
-    uint8_t serial_data[128];
-    uint32_t started_ms = HAL_GetTick();
-
-    StorageDriver_PreparePins();
-    do {
-        size_t received = Board_ScreenRead(serial_data, sizeof(serial_data));
-        if (received != 0U &&
-            ScreenProtocol_EarlyBootReply(serial_data, received)) {
-            return;
-        }
-        vTaskDelay(pdMS_TO_TICKS(1U));
-    } while (HAL_GetTick() - started_ms < SCREEN_EARLY_BOOT_WINDOW_MS);
+    (void)ChargerDriver_Init(); /* Keep original charge and gauge configuration. */
+    for(;;) { power_poll(); vTaskDelay(pdMS_TO_TICKS(1000U)); }
 }
 
-static void handle_button(void)
+static void update_power(void)
 {
-    const AppSnapshot *status = AppController_Status();
-
-    if (status->state == APP_STATE_PREHEAT || status->state == APP_STATE_READY) {
-        (void)AppController_Start();
-    } else if (status->state == APP_STATE_RUNNING) {
-        AppController_Stop(APP_STOP_USER);
-    }
+    taskENTER_CRITICAL();
+    PressureMonitor_Power(power_status.valid && HAL_GetTick()-power_status.updated<2500U,
+        power_status.charging,power_status.full,power_status.soc,power_status.mv);
+    taskEXIT_CRITICAL();
 }
 
 void AppMain_Task(void *argument)
 {
-    uint8_t serial_data[128];
-    uint32_t last_eye_ms = 0U;
-    uint32_t eye_poll_period_ms = APP_EYE_POLL_PERIOD_MS;
-    uint32_t last_power_ms = 0U;
-    bool external_power_seen = false;
-    bool previous_external_power = false;
-
     (void)argument;
-    ScreenProtocol_Init(Board_ScreenWrite);
-    reply_language_before_board_init();
-    AppLog_Init();
-    LOGI("%s firmware boot, version=%lu, eye_fuse=%u",
-         PRODUCT_MODEL_NAME, (unsigned long)PRODUCT_VERSION_NUMBER,
-         (unsigned)PRODUCT_EYE_FUSE_ENABLED);
-    if (!Board_Init()) {
-        LOGE("Board initialization failed");
-        for (;;) {
-            vTaskDelay(pdMS_TO_TICKS(1000U));
-        }
+    AppLog_Init(); outputs_off();
+    /* USART2 belongs to the PC in this firmware. Keep LCD TX unpowered. */
+    ScreenUart_SetPower(false); (void)ScreenUart_Init();
+    StorageDriver_PreparePins(); /* Never call legacy Init: it may erase EEPROM. */
+    PressureMonitor_Init(&port);
+    /* I2C retries must never hold up the higher-priority pressure sampler. */
+    if(xTaskCreate(power_task,"charge",384,NULL,tskIDLE_PRIORITY+1U,NULL)!=pdPASS) {
+        LOGE("[Power] Failed to allocate charging task");
     }
-    LOGI("Board initialization complete");
-    /* Reset the stream parser after the early, language-only handshake. */
-    ScreenProtocol_Init(Board_ScreenWrite);
-    /* The tuning protocol shares USART2 with the real screen. Its 7A A7
-     * header is deliberately distinct from the screen's 5A A5 / 6A A6. */
-    TuningProtocol_Init(Board_ScreenWrite);
-    AppController_Init(Board_AppPort());
-    /* Make the first charger check immediate instead of leaving a one-second
-     * window in which PWR_SENSE can be mistaken for a battery-only shutdown. */
-    last_power_ms = HAL_GetTick() - APP_BATTERY_POLL_PERIOD_MS;
-
-    for (;;) {
-        uint32_t now = HAL_GetTick();
-        size_t received = Board_ScreenRead(serial_data, sizeof(serial_data));
-        if (received != 0U) {
-            ScreenProtocol_Feed(serial_data, received);
-            TuningProtocol_Feed(serial_data, received);
+    Ws2812Driver_Init();
+    Ads1220Driver_PreparePins();
+    bool ready=Ads1220Driver_Init();
+    PressureMonitor_AdcReady(ready);
+    uint32_t retry=HAL_GetTick(), last_raw=retry;
+    for(;;) {
+        uint8_t data[128];
+        size_t count=Board_ScreenRead(data,sizeof(data));
+        if(count) PressureMonitor_Feed(data,count);
+        uint32_t now=HAL_GetTick();
+        if(!ready && now-retry>=2000U) {
+            retry=now; ready=Ads1220Driver_RetryInit();
+            PressureMonitor_AdcReady(ready);
         }
-        if (Board_TakeButtonEvent()) {
-            handle_button();
+        if(ready && HAL_GPIO_ReadPin(ADS1220_DRDY_GPIO_Port,ADS1220_DRDY_Pin)==GPIO_PIN_RESET) {
+            int32_t raw=0; bool valid=Ads1220Driver_ReadRaw(&raw);
+            PressureMonitor_Sample(valid,raw); last_raw=HAL_GetTick();
+            if(!valid) { ready=false; PressureMonitor_AdcReady(false); retry=last_raw; }
+        } else if(ready && now-last_raw>=100U) {
+            PressureMonitor_Sample(false,0); last_raw=now;
+            /* Recover from an unplugged/stalled ADC without stopping charging. */
+            ready=false; PressureMonitor_AdcReady(false); retry=now;
         }
-        if (now - last_eye_ms >= eye_poll_period_ms) {
-            last_eye_ms = now;
-            AppEyeState eye = Board_AppPort()->eye_read_state();
-            /* Slow only confirmed, healthy presence polling. Keep insertion
-             * confirmation and reconnect checks at the original cadence. */
-            eye_poll_period_ms = EyeDriver_InitialStateConfirmed() &&
-                                 EyeDriver_LastProbeValid() &&
-                                 eye != APP_EYE_ABSENT ?
-                                 APP_EYE_ONLINE_POLL_PERIOD_MS :
-                                 APP_EYE_POLL_PERIOD_MS;
-            if (EyeDriver_InitialStateConfirmed()) {
-                AppController_SetEyeLinkHealthy(EyeDriver_LastProbeValid());
-                AppController_SetEyeState(eye);
-            }
-        }
-        if (now - last_power_ms >= APP_BATTERY_POLL_PERIOD_MS) {
-            bool charging = false;
-            bool full = false;
-            uint16_t soc = 0U;
-            uint16_t millivolts = 0U;
-            last_power_ms = now;
-            if (Board_AppPort()->power_read(&charging, &full, &soc, &millivolts)) {
-                /* Reset only on an observed external-power falling edge.
-                 * A battery-only boot (or a failed status read) must never
-                 * request another reset. Disable actuators before resetting;
-                 * the normal startup path will configure and home again. */
-                if (external_power_seen && previous_external_power && !charging) {
-                    Board_AppPort()->safe_outputs_off();
-                    LOGW("[Power] USB removed: outputs off, software reset requested");
-                    NVIC_SystemReset();
-                }
-                previous_external_power = charging;
-                external_power_seen = true;
-                AppController_SetPower(charging, full, soc, millivolts);
-            }
-        }
-        if (Board_TakePowerLossEvent()) {
-            AppController_NotifyPowerLoss();
-        }
-        AppController_Tick();
-        TuningProtocol_Tick();
-        Board_Tick();
-        EyeDriver_DiagnosticsTick();
-        vTaskDelay(pdMS_TO_TICKS(10U));
+        update_power();
+        PressureMonitor_Tick();
+        ScreenUart_TxTick();
+        if(Board_TakePowerLossEvent()) outputs_off();
+        Ws2812Driver_SetFixtureColor(ready?0x000020U:0x003000U);
+        Ws2812Driver_Tick();
+        vTaskDelay(pdMS_TO_TICKS(1U));
     }
 }
-
-#endif

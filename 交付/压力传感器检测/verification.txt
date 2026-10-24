@@ -1,0 +1,28 @@
+HTP100 pressure sensor monitor - verification record
+Date: 2026-10-24 (Asia/Shanghai)
+Branch: 压力传感器检测
+
+PASS: Release firmware built with ARM GCC 14.3.1 / CMake / Ninja.
+      FLASH 55912 bytes; static RAM and reserved heap/stack 21888 bytes.
+      Charger/gauge task stack is allocated from the existing FreeRTOS heap.
+PASS: Production ARM measurement engine tests; 119 wire frames decoded by PC parser.
+      Pressure conversion, instantaneous-vs-filtered display, calibration reset,
+      peak/deadline, abort, busy locks, stale/saturation, stable/noisy tare,
+      point capture, stream recovery, duplicate commands, EEPROM save,
+      interrupted-write rollback, corrupt-slot fallback, timer/generation wrap.
+PASS: Production UART DMA queue under ARM emulation with a fake HAL.
+      Copy lifetime, order, circular wrap, overflow rejection, timeout recovery.
+PASS: 10 pytest cases including real Qt GUI to production ARM C via simulated serial.
+      Four-point mass calibration, RAM apply/readback, EEPROM save/reboot,
+      5ms sampled peak between telemetry frames, stale display and reconnection.
+PASS: Windows EXE built with PyInstaller 6.22.3, startup smoke check (offscreen).
+PASS: HEX checksum/address/vector validation and J-Link command DryRun.
+PASS: ELF inspection excludes eye EEPROM/treatment/heater/motor runtime.
+
+Runtime dependencies packaged: Python 3.12.10, PyQt5 5.15.11, pyserial 3.5.
+Calibration reference: masses + effective area; default area 84.8 mm^2.
+The preview image contains explicitly labeled simulated data.
+
+NOT PERFORMED: physical programming, real sensor mass calibration, actual-area
+verification, sensor accuracy/hysteresis tests, charge/discharge bench tests.
+No physical serial port or programming probe was opened by these checks.

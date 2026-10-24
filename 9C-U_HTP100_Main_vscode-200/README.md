@@ -1,5 +1,8 @@
 # 9C-U HTP100 main-control firmware v2
 
+> 当前 `压力传感器检测` 分支已改为独立的压力测量固件，构建目标为 `HTP100-Pressure-Monitor`。
+> 请按 [压力检测说明](../交付/压力传感器检测/使用说明.md) 和 [根目录构建说明](../README.md) 使用；下文为保留的原产品说明。
+
 This is a clean sibling project for the STM32G070CBT6 main-control board. It
 reuses the CubeMX peripheral initialization and STM32 HAL, but does not reuse
 the old `UserApp`, `Button`, `communication`, task-delete, or shared-global

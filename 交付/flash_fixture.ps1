@@ -5,10 +5,12 @@ param(
     [ValidateRange(100,4000)][int]$Speed = 4000,
     [ValidatePattern('^\d+$')][string]$ProbeSerial,
     [string]$JLinkPath,
+    [string]$FirmwarePath,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
 try {
+    if ($FirmwarePath -and $Board -ne 'Main') { throw 'FirmwarePath is only valid for the Main board.' }
     if ($Board -eq 'Screen') {
         if (!$ScreenVariant) {
             Write-Host '请选择屏幕类型：'
@@ -28,7 +30,7 @@ try {
         $firmware = Join-Path $PSScriptRoot "HTP100_Fixture_Screen_$ScreenVariant.hex"
     } else {
         if ($ScreenVariant) { throw 'ScreenVariant is only valid for the Screen board.' }
-        $firmware = Join-Path $PSScriptRoot 'HTP100_Fixture_Main.hex'
+        $firmware = if ($FirmwarePath) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($FirmwarePath) } else { Join-Path $PSScriptRoot 'HTP100_Fixture_Main.hex' }
     }
     if (!(Test-Path -LiteralPath $firmware -PathType Leaf)) { throw "Firmware not found: $firmware" }
     $base = if ($Board -eq 'Main') { [uint64]0x08000000 } else { [Convert]::ToUInt64('90000000',16) }
