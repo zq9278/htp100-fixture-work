@@ -50,7 +50,7 @@ for packet in packets:
     elif packet.command == P.POINT_RESULT:
         P.PointSample.decode(packet.payload)
 assert counts[P.STATUS] > 50 and counts[P.POINT_RESULT] >= 2
-print(f"PASS: ARM measurement engine and PC decoder ({len(packets)} frames): conversion, peak/deadline, raw peak vs filter, abort, busy locks, stale/saturation, stable/noisy tare, capture, CRC recovery, duplicate commands, persistence/power-cut fallback, timer/generation wrap.")
+print(f"PASS: ARM measurement engine and PC decoder ({len(packets)} frames): continuous raw maximum, no one-hour deadline, clear/restart, duplicate-clear idempotency, negative maximum, stale/saturation, calibration during capture, CRC, persistence/power-cut fallback, long-uptime saturation and timer/generation wrap.")
 
 uart_elf = output / "pressure-uart-tests.elf"
 subprocess.run([shutil.which("arm-none-eabi-gcc"), "-mcpu=cortex-m0", "-mthumb", "-O1", "-nostartfiles",

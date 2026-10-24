@@ -67,7 +67,11 @@ static bool calibration(const uint8_t *p,PcCalibration *c) {
 }
 static void received(const uint8_t *f) {
     uint8_t cmd=f[3],n=f[6];uint16_t seq=u16(f+4);const uint8_t *p=f+7;
-    if(cmd==PM_INFO && n==4 && p[0]==1 && p[1]==0) { identified=true;return; }
+    if(cmd==PM_INFO && n==4) {
+        if(p[0]==1 && p[1]==1) identified=true;
+        else s.message="请更新G0为持续峰值版本1.1";
+        return;
+    }
     if(cmd==PM_CONFIG && n==18) {
         PcCalibration config;
         if(!calibration(p,&config)) return;
@@ -91,7 +95,7 @@ static void received(const uint8_t *f) {
         uint32_t clock=u32(p);
         if(have_clock && (int32_t)(clock-s.device_ms)<0) { disconnect("G0已重启，正在重新连接");return; }
         have_clock=true;s.device_ms=clock;
-        bool was_connected=s.connected;uint8_t old_state=s.peak_state;
+        bool was_connected=s.connected;
         last_rx=io->now();s.connected=identified;
         if(s.connected && !was_connected) s.message="下位机已连接，先去皮或校准";
         s.raw=(int32_t)u32(p+4);s.flags=u16(p+36);
@@ -102,9 +106,6 @@ static void received(const uint8_t *f) {
         s.sample_area=n==56?getf(p+52):NAN;
         if(!isfinite(s.sample_area) || s.sample_area<1 || s.sample_area>100000) s.sample_area=NAN;
         s.peak_state=p[38];s.soc=p[39];s.mv=u16(p+40);s.errors=u32(p+42);s.peak_at=u32(p+48);s.updates++;
-        if(PressureClient_WizardActive() && s.peak_state==PM_RUNNING) wizard_interrupt("另一端开始峰值捕捉，校准已中断");
-        if(old_state==PM_RUNNING && s.peak_state==PM_COMPLETE && !s.pending)
-            s.message=s.errors?"捕捉完成，存在异常采样":"捕捉完成，结果已锁存";
         if(!(s.flags&PM_VALID)) s.pressure=s.filtered=NAN;
         return;
     }
@@ -134,7 +135,7 @@ static void received(const uint8_t *f) {
                 s.wizard.phase=PC_W_SAVED;s.wizard.revision++;s.message="复核通过，保存成功，断电保留";return;
             }
             s.message=pending==PM_SAVE?"保存成功，断电保留":pending==PM_TARE?"去皮完成，复核后可保存":"已应用，请用独立砝码复核";
-        } else s.message=pending==PM_START?"峰值捕捉中，以G0计时为准":"已结束，保留本次结果";
+        } else if(pending==PM_CLEAR) { s.peak=s.minimum=NAN;s.samples=s.errors=s.elapsed=s.peak_at=0;s.message="峰值已清除，正在持续捕捉"; }
     }
 }
 void PressureClient_Feed(const uint8_t *p,size_t n) {
@@ -165,24 +166,23 @@ void PressureClient_Tick(void) {
     }
 }
 static bool ready(uint8_t cmd) {
-    if(PressureClient_WizardActive() && !wizard_internal && cmd!=PM_GET_CONFIG) { s.message="请先完成或退出引导校准";return false; }
+    if(PressureClient_WizardActive() && !wizard_internal && cmd!=PM_GET_CONFIG && cmd!=PM_CLEAR) { s.message="请先完成或退出引导校准";return false; }
     if(!s.connected || !s.config_valid) { s.message="下位机未连接或参数未读取";return false; }
     if(s.pending) { s.message="请等待当前操作完成";return false; }
-    if(s.peak_state==PM_RUNNING && cmd!=PM_STOP && cmd!=PM_GET_CONFIG) { s.message="请先结束峰值捕捉";return false; }
-    if((cmd==PM_START || cmd==PM_TARE || cmd==PM_POINT) && !(s.flags&PM_VALID)) { s.message="传感器当前无有效读数";return false; }
+    if((cmd==PM_TARE || cmd==PM_POINT) && !(s.flags&PM_VALID)) { s.message="传感器当前无有效读数";return false; }
     return true;
 }
 bool PressureClient_Command(uint8_t cmd,uint32_t duration) {
+    (void)duration; /* Retained API argument; capture no longer has a duration. */
     if(!ready(cmd)) return false;
     uint8_t p[13]={0},n=0;
-    if(cmd==PM_START) {
-        if(!(s.flags&PM_ZEROED) || duration<100 || duration>3600000) { s.message="请先去皮，并确认捕捉时长";return false; }
-        put32(p,duration);n=4;
+    if(cmd==PM_CLEAR) {
+        if(!(s.flags&PM_ZEROED)) { s.message="请先空载去皮或校准";return false; }
     } else if(cmd==PM_SET_CONFIG) {
         if(!s.fit_valid) { s.message="请先计算有效校准";return false; }
         put32(p,(uint32_t)s.fit.zero);putf(p+4,s.fit.scale);putf(p+8,s.fit.area);p[12]=3;n=13;
     } else if(cmd==PM_SAVE && s.config.flags!=3) { s.message="尚未完成校准，不能保存";return false; }
-    else if(cmd!=PM_TARE && cmd!=PM_STOP && cmd!=PM_SAVE && cmd!=PM_GET_CONFIG) return false;
+    else if(cmd!=PM_TARE && cmd!=PM_SAVE && cmd!=PM_GET_CONFIG) return false;
     if(!transmit(cmd,p,n)) return false;
     s.pending=cmd;got_point=got_config=false;s.message=(cmd==PM_TARE || cmd==PM_POINT)?"采样1秒，请保持静止":"等待下位机回应";return true;
 }

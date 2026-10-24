@@ -15,7 +15,7 @@ typedef struct {
 } PressureMonitorPort;
 
 enum { PM_HELLO=1, PM_GET_CONFIG=2, PM_TARE=3, PM_POINT=4,
-       PM_SET_CONFIG=5, PM_SAVE=6, PM_START=7, PM_STOP=8,
+       PM_SET_CONFIG=5, PM_SAVE=6, PM_START=7, PM_STOP=8, PM_CLEAR=9,
        PM_INFO=0x81, PM_CONFIG=0x82, PM_ACK=0x83, PM_POINT_RESULT=0x84,
        PM_STATUS=0x90 };
 enum { PM_OK=0, PM_BAD_REQUEST=1, PM_BUSY=2, PM_SENSOR_ERROR=3,
@@ -24,6 +24,8 @@ enum { PM_OK=0, PM_BAD_REQUEST=1, PM_BUSY=2, PM_SENSOR_ERROR=3,
 enum { PM_VALID=1, PM_CALIBRATED=2, PM_ZEROED=4, PM_CHARGING=8,
        PM_FULL=16, PM_POWER_VALID=32, PM_DIRTY=64, PM_SATURATED=128,
        PM_ADC_READY=256 };
+/* START/STOP and COMPLETE/ABORTED are reserved legacy values. Firmware 1.1
+ * captures continuously after zero is established; CLEAR begins a new epoch. */
 enum { PM_IDLE=0, PM_RUNNING=1, PM_COMPLETE=2, PM_ABORTED=3 };
 
 #define PM_MAX_PAYLOAD 64U

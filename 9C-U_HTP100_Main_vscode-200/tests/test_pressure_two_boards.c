@@ -72,7 +72,7 @@ int main(void) {
     advance(100,0);const PressureClientState *s=PressureClient_Status();
     CHECK(s->connected && s->config_valid && s->config.flags==0);
     CHECK(PressureClient_Point(0));pump();
-    npc=0;uint8_t duration[4]={200,0,0,0};pc_request(PM_START,12,duration,4);CHECK(pc_ack(PM_BUSY));
+    npc=0;pc_request(PM_CLEAR,12,NULL,0);CHECK(pc_ack(PM_BUSY));
     advance(1100,0);CHECK(s->point_count==1 && !s->pending);
     for(unsigned i=1;i<=3;i++) {
         CHECK(PressureClient_Point((float)(i==1?100:i==2?300:500)));pump();
@@ -90,20 +90,22 @@ int main(void) {
     CHECK(PressureClient_Command(PM_SET_CONFIG,0));pump();CHECK(s->config.flags==3 && !s->pending);
     CHECK(PressureClient_Command(PM_SAVE,0));pump();CHECK(s->config.generation==1 && !s->config.dirty);
     advance(50,0); /* The next telemetry publishes the newly calibrated flags. */
-    CHECK(PressureClient_Command(PM_START,200));pump();
+    CHECK(PressureClient_Command(PM_CLEAR,0));pump();
     advance(50,100);advance(5,500);advance(195,100);
-    CHECK(s->peak_state==PM_COMPLETE && s->peak_at==55 && s->errors==0);
+    CHECK(s->peak_state==PM_RUNNING && s->duration==0 && s->peak_at==55 && s->errors==0);
     CHECK(fabsf(s->peak-433.7023f)<0.01f && fabsf(s->pressure-86.7405f)<0.01f);
     CHECK(fabsf(PressureClient_Force(s->peak,s->sample_area)-4.903325f)<0.00001f);
     CHECK(fabsf(PressureClient_Grams(s->peak,s->sample_area)-500.0f)<0.001f);
     CHECK(fabsf(PressureClient_Grams(s->pressure,s->sample_area)-100.0f)<0.001f);
     CHECK(fabsf(PressureClient_Force(s->pressure,s->sample_area)+PressureClient_Force(-s->pressure,s->sample_area))<0.0001f);
     CHECK(isnan(PressureClient_Force(s->pressure,NAN)));
+    advance(2000,100);CHECK(fabsf(s->peak-433.7023f)<0.01f); /* Does not end or follow falling force. */
     CHECK(!PressureClient_Command(PM_START,0));
-    CHECK(PressureClient_Command(PM_START,10000));pump();advance(50,100);
+    CHECK(!PressureClient_Command(PM_STOP,0));
     PressureClient_Init(&h7);advance(100,100);CHECK(s->connected && s->peak_state==PM_RUNNING);
-    CHECK(!PressureClient_Point(100));
-    CHECK(PressureClient_Command(PM_STOP,0));pump();advance(100,100);CHECK(s->peak_state==PM_ABORTED);
+    CHECK(fabsf(s->peak-433.7023f)<0.01f); /* Reconnecting H7 must not clear G0's maximum. */
+    CHECK(PressureClient_Command(PM_CLEAR,0));pump();advance(100,100);
+    CHECK(s->peak_state==PM_RUNNING && fabsf(PressureClient_Grams(s->peak,s->sample_area)-100)<0.01f);
     drop_h7=true;advance(4200,100);CHECK(!s->connected && !s->config_valid && isnan(s->pressure));
     drop_h7=false;advance(1200,0);CHECK(s->connected && s->config.flags==3 && s->config.generation==1);
     /* Simulate the user's approximately 1.86% gain error, then correct it using

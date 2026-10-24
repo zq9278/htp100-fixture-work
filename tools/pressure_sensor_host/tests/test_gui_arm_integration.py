@@ -98,7 +98,7 @@ def test_gui_to_real_firmware(monkeypatch):
     assert window.identified and window.device_config.flags == 0
     cable.advance(50)
     window.poll()
-    assert window.tare_button.isEnabled() and not window.start_button.isEnabled()
+    assert window.tare_button.isEnabled() and not window.clear_button.isEnabled()
     for mass in (0, 100, 300, 500):
         window.mass.setValue(mass)
         window.capture_point()
@@ -116,21 +116,28 @@ def test_gui_to_real_firmware(monkeypatch):
     window.command(P.SAVE)
     window.poll()
     assert window.device_config.generation == 1 and not window.device_config.dirty
-    window.duration.setValue(0.2)
-    window.start_button.click()
+    window.clear_button.click()
     window.poll()
     cable.advance(50, 100)
     cable.advance(5, 500)  # A 5ms spike between two PC telemetry frames.
     cable.advance(195, 100)
     window.poll()
-    assert window.telemetry.state == 2 and window.telemetry.errors == 0
+    assert window.telemetry.state == 1 and window.telemetry.duration_ms == 0 and window.telemetry.errors == 0
     assert window.telemetry.peak == pytest.approx(mass_to_mmhg(500, 84.8), abs=0.01)
     assert window.telemetry.pressure == pytest.approx(mass_to_mmhg(100, 84.8), abs=0.01)
-    assert window.telemetry.peak_at_ms == 55 and len(window.history) == 1
+    assert window.telemetry.peak_at_ms == 55 and len(window.history) == 0
+    window.snapshot_button.click()
+    assert len(window.history) == 1
     assert "433.7" in window.peak_label.text()
     assert "4.903" in window.peak_load_label.text() and "500.0" in window.peak_load_label.text()
     force, grams = H.mmhg_to_force_mass(window.telemetry.filtered, window.telemetry.area_mm2)
     assert f"{force:.3f}" in window.load_label.text() and f"{grams:.1f}" in window.load_label.text()
+    cable.advance(1500,100);window.poll()
+    assert window.telemetry.state == 1 and '500.0' in window.peak_load_label.text()
+    window.clear_button.click();window.poll()
+    assert window.telemetry.count == 0 and not window.snapshot_button.isEnabled()
+    cable.advance(100,100);window.poll()
+    assert '100.0' in window.peak_load_label.text() and len(window.history) == 1
     for step in range(120):
         cable.advance(250, 220+180*math.sin(step/7))
         window.poll()
@@ -149,7 +156,7 @@ def test_gui_to_real_firmware(monkeypatch):
     # Expired data cannot remain displayed as current pressure.
     window.last_rx = time.monotonic()-2
     window.poll()
-    assert window.pressure_label.text() == "— mmHg" and not window.start_button.isEnabled()
+    assert window.pressure_label.text() == "— mmHg" and not window.snapshot_button.isEnabled()
     assert window.load_label.text() == "力值：— N   等效克数：— g"
     # Reboot keeps calibration; reconnect discards old point/command state.
     cable.call("Sim_Reset")

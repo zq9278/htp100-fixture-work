@@ -63,8 +63,9 @@ static void collect(int32_t raw,int noise) {
 int main(void) {
     memset(eeprom,255,sizeof(eeprom)); clock_ms=100; PressureMonitor_Init(&port);
     uint8_t *p=status(); CHECK(!(get16(p+36)&PM_ZEROED)); CHECK(isnan(getf(p+8)));
-    uint8_t duration[4]; put32(duration,1000);
-    CHECK(command(PM_START,duration,4)==PM_NOT_ZEROED);
+    CHECK(command(PM_CLEAR,0,0)==PM_NOT_ZEROED);
+    CHECK(command(PM_START,0,0)==PM_BAD_REQUEST);
+    CHECK(command(PM_STOP,0,0)==PM_BAD_REQUEST);
     configuration(-0.01f); CHECK(latest[8]==PM_OK);
     PressureMonitor_AdcReady(true); PressureMonitor_Power(true,true,false,75,3900);
     PressureMonitor_Sample(true,99900); p=status();
@@ -76,23 +77,26 @@ int main(void) {
     configuration(-0.02f); p=status();
     CHECK(fabsf(getf(p+8)-getf(p+12))<0.0001f); /* No old-scale filtered display after config. */
     configuration(-0.01f); PressureMonitor_Sample(true,99900);
-    CHECK(command(PM_START,duration,4)==PM_OK);
+    CHECK(command(PM_CLEAR,0,0)==PM_OK);
     uint16_t start_seq=next_sequence;
     clock_ms+=100; PressureMonitor_Sample(true,95000); /* 50g maximum */
-    CHECK(request(PM_START,duration,4,start_seq)==PM_OK); /* Must not reset timer/peak. */
+    CHECK(request(PM_CLEAR,0,0,start_seq)==PM_OK); /* A retry must not clear a new peak. */
     clock_ms+=100; PressureMonitor_Sample(true,99000);
-    CHECK(command(PM_TARE,0,0)==PM_BUSY);
-    configuration(-0.02f); CHECK(latest[8]==PM_BUSY);
-    CHECK(command(PM_SAVE,0,0)==PM_BUSY);
-    clock_ms+=800; PressureMonitor_Sample(true,50000); /* Exactly on deadline: excluded. */
-    p=status(); CHECK(p[38]==PM_COMPLETE && get32(p+24)==1000 && get32(p+32)==2);
-    CHECK(fabsf(getf(p+16)-43.368f)<0.01f && get32(p+48)==100);
-    CHECK(command(PM_START,duration,4)==PM_OK);
+    p=status(); CHECK(fabsf(getf(p+16)-43.368f)<0.01f && get32(p+48)==100);
+    clock_ms+=800; PressureMonitor_Sample(true,50000); /* A later larger value is always included. */
+    clock_ms+=3600001; PressureMonitor_Sample(true,98000); /* No one-hour deadline. */
+    p=status(); CHECK(p[38]==PM_RUNNING && get32(p+28)==0 && get32(p+32)==4);
+    CHECK(fabsf(getf(p+16)-433.7023f)<0.01f && get32(p+24)>3600000);
+    CHECK(command(PM_CLEAR,0,0)==PM_OK);
     clock_ms+=100; PressureMonitor_Sample(false,0);
     clock_ms+=100; PressureMonitor_Sample(true,98000);
-    CHECK(command(PM_STOP,0,0)==PM_OK);
-    p=status(); CHECK(p[38]==PM_ABORTED && get32(p+42)==1 && get32(p+32)==1);
+    p=status(); CHECK(p[38]==PM_RUNNING && get32(p+42)==1 && get32(p+32)==1);
+    CHECK(fabsf(getf(p+16)-17.3472f)<0.01f); /* Old 500g maximum was cleared. */
     clock_ms+=200; p=status(); CHECK(!(get16(p+36)&PM_VALID) && isnan(getf(p+8)));
+    CHECK(command(PM_CLEAR,0,0)==PM_OK); /* Clear also works while the sensor is stale. */
+    p=status(); CHECK(isnan(getf(p+16)) && get32(p+32)==0);
+    PressureMonitor_Sample(true,100100);PressureMonitor_Sample(true,100200);p=status();
+    CHECK(fabsf(getf(p+16)+0.86736f)<0.001f); /* Signed maximum, not a zero clamp. */
     PressureMonitor_Sample(true,8388607); p=status();
     CHECK((get16(p+36)&PM_SATURATED) && !(get16(p+36)&PM_VALID));
 
@@ -133,14 +137,16 @@ int main(void) {
     PressureMonitor_Init(&port); (void)command(PM_GET_CONFIG,0,0);
     CHECK(get32(latest+20)==0 && fabsf(getf(latest+11)+0.03f)<0.000001f);
     clock_ms=0xFFFFFF00U; PressureMonitor_Sample(true,100000);
-    put32(duration,500); CHECK(command(PM_START,duration,4)==PM_OK);
+    CHECK(command(PM_CLEAR,0,0)==PM_OK);
     clock_ms+=100; PressureMonitor_Sample(true,99000);
-    clock_ms+=500; p=status(); CHECK(p[38]==PM_COMPLETE && get32(p+24)==500);
+    clock_ms+=500; p=status(); CHECK(p[38]==PM_RUNNING && get32(p+24)==650);
+    clock_ms+=0x80000000U;PressureMonitor_Tick();clock_ms+=0x80000000U;p=status();
+    CHECK(p[38]==PM_RUNNING && get32(p+24)==UINT32_MAX); /* Long uptime saturates time, never stops. */
     uint8_t bad[13]={0}; putf(bad+4,NAN); putf(bad+8,84.8f); bad[12]=3;
     CHECK(command(PM_SET_CONFIG,bad,sizeof(bad))==PM_RANGE);
     const uint8_t garbage[]={0x7B,0xB7,1,8,1,0,0,0,0,10,0x7B,0xB7,1,8,0,0,255};
     PressureMonitor_Feed(garbage,sizeof(garbage));
-    CHECK(command(PM_STOP,0,0)==PM_OK);
+    CHECK(command(PM_CLEAR,0,0)==PM_OK);
     eeprom[PM_STORE_A]^=1; eeprom[PM_STORE_B]^=1;
     PressureMonitor_Init(&port); (void)command(PM_GET_CONFIG,0,0); CHECK(latest[19]==0);
     return 0;

@@ -3,13 +3,15 @@ Date: 2026-10-24 (Asia/Shanghai)
 Branch: 压力传感器检测
 
 PASS: Release firmware built with ARM GCC 14.3.1 / CMake / Ninja.
-      G0 FLASH 58788 bytes; static RAM and reserved heap/stack 23384 bytes.
-      H7 new-panel FLASH 859228 bytes; old-panel FLASH 859252 bytes.
-      H7 DTCM RAM 22712 bytes; AXI DMA buffer 256 bytes; LVGL uses existing SDRAM.
+      G0 FLASH 58568 bytes; static RAM and reserved heap/stack 23376 bytes.
+      H7 new-panel FLASH 852724 bytes; old-panel FLASH 852740 bytes.
+      H7 DTCM RAM 22704 bytes; AXI DMA buffer 256 bytes; LVGL uses existing SDRAM.
       Charger/gauge task stack is allocated from the existing FreeRTOS heap.
-PASS: Production ARM measurement engine tests; 119 wire frames decoded by PC parser.
+PASS: Production ARM measurement engine tests; 123 wire frames decoded by PC parser.
       Pressure conversion, instantaneous-vs-filtered display, calibration reset,
-      peak/deadline, abort, busy locks, stale/saturation, stable/noisy tare,
+      continuous peak beyond one hour, no start/stop, clear/restart, duplicate
+      clear idempotency, negative maximum, calibration while capturing,
+      long-uptime time saturation, stale/saturation, stable/noisy tare,
       point capture, stream recovery, duplicate commands, EEPROM save,
       interrupted-write rollback, corrupt-slot fallback, timer/generation wrap.
 PASS: Production UART DMA queue under ARM emulation with a fake HAL.
@@ -31,9 +33,13 @@ PASS: Actual new/old H7 LVGL ELF rendering linked to the real G0 simulator.
       RAM apply/readback, three verification cycles, save and failed-save gating,
       retry/cancel, numeric keyboard READY, persistent input validation,
       live/peak three-unit display, stale pressure/power and disconnection.
+      No duration or start/stop widgets; one clear button begins a new epoch.
+      Falling force retains maximum; clearing at lower force replaces the old peak.
 PASS: 11 pytest cases including real Qt PC GUI to production ARM C USART1 channel.
       Four-point mass calibration, RAM apply/readback, EEPROM save/reboot,
       5ms sampled peak between telemetry frames, stale display and reconnection.
+      Continuous capture, clear/restart without changing live values or scale,
+      explicit UI snapshot history; history survives clearing the current peak.
       Synchronized mmHg/N/g conversions across areas, signed readings,
       live/peak labels and stale-unit clearing; 56-byte and legacy frame decoding.
 PASS: Windows EXE built with PyInstaller 6.22.3, startup smoke check (offscreen).
@@ -46,7 +52,9 @@ Calibration reference: masses + effective area; default area 84.8 mm^2.
 Force fit and guided acceptance are independent of area; mmHg needs valid area.
 500 g is the editable example calibration span, not a sensor capacity claim.
 Default tolerance is 0.5% of selected span; it is not a certified accuracy rating.
-The guided workflow is implemented in H7; G0 wire/storage format is unchanged.
+The guided workflow is implemented in H7; EEPROM storage format is unchanged.
+Firmware INFO version 1.1; CLEAR command 0x09, duration field reserved as zero.
+G0, H7 and optional PC must all be updated; prior timed firmware is incompatible.
 PC retains direct free-point calibration for auxiliary debugging.
 H7 previews are under H7界面预览（仿真）; the PC preview is labeled simulated data.
 H7 USART1 PA9/PA10 <-> G0 USART2 PA3/PA2; PC <-> G0 USART1 PB6/PB7.

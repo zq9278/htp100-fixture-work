@@ -146,15 +146,23 @@ event_header=(root/'9C-U_HTP100_SCREEN_Picture -100/lvgl/src/core/lv_event.h').r
 event_names=re.findall(r'^\s*(LV_EVENT_\w+)(?:\s*=\s*\d+)?\s*,',event_header,re.M)
 call('lv_event_send',pointer('keyboard'),event_names.index('LV_EVENT_READY'),0)
 call('lv_obj_has_flag',pointer('keyboard'),1);assert u.reg_read(UC_ARM_REG_R0),'READY must close the keyboard'
-click('pm_back_button');set_text('time_input','0');click('pm_start_button');advance(500,350)
-assert '0.1' in label_text('message_label'),'Input validation must remain readable after redraw'
+set_text('capacity_input','0');click('pm_next_button');advance(500,350)
+assert '量程' in label_text('message_label'),'Input validation must remain readable after redraw'
 snapshot('08-输入校验')
-set_text('time_input','1.0');click('pm_start_button')
+set_text('capacity_input','500');set_text('tolerance_input','0.500');click('pm_back_button');click('pm_clear_button')
 advance(350,300);advance(200,500);advance(650,350)
 assert '433.7' in label_text('peak_label'),label_text('peak_label')
 assert '4.903' in label_text('peak_load_label') and '500.0' in label_text('peak_load_label')
 assert '3.432' in label_text('load_label') and '350.0' in label_text('load_label')
 snapshot('05-实时压力与峰值')
+advance(2000,100)
+assert '500.0' in label_text('peak_load_label'),'Falling pressure must not lower the latched maximum'
+click('pm_clear_button');advance(200,100)
+assert '100.0' in label_text('peak_load_label'),'Clear must immediately start a fresh maximum'
+assert '持续捕捉' in label_text('peak_detail')
+advance(150,100) # Let a coincident background config read finish before the preview.
+call('lv_obj_has_state',pointer('pm_clear_button'),0x80);assert not u.reg_read(UC_ARM_REG_R0)
+snapshot('14-清除后继续捕捉')
 # A separate failed run must visibly disable save; retry begins fresh checks.
 click('pm_cal_button');click('pm_next_button');advance(100,0);click('pm_next_button');advance(100,0)
 for grams in (0,100,200,300,400,500):
@@ -172,4 +180,4 @@ now_ms+=1500;call('PressureUi_Tick');snapshot('06-数据过期')
 assert '--.-' in label_text('value_label')
 assert '---.---' in label_text('load_label'),'Stale data must clear N and g too'
 now_ms+=3000;call('PressureUi_Tick');snapshot('07-两板通讯断开')
-print(f'PASS: {variant} H7 production LVGL ELF + real G0: guided six-point fit, three verification cycles, save/readback, failed hysteresis disables save, retry/cancel, keyboard, live/peak units and stale/link states rendered.')
+print(f'PASS: {variant} H7 production LVGL ELF + real G0: continuous peak/clear/restart, guided six-point fit and three verification cycles, save gating, retry/cancel, keyboard, live/peak units and stale/link states rendered.')

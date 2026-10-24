@@ -25,14 +25,14 @@ static uint32_t generation, last_sample, last_report;
 static bool dirty, sample_valid, adc_ready, filter_valid, saturated;
 static int32_t latest_raw;
 static float pressure, filtered, peak, minimum;
-static uint32_t peak_started, peak_duration, peak_elapsed, peak_count, peak_errors, peak_at;
+static uint32_t peak_clock, peak_elapsed, peak_count, peak_errors, peak_at;
 static uint32_t collect_started, collect_count;
 static int32_t collect_min, collect_max;
 static double collect_mean, collect_m2;
 static bool collect_error;
 static uint16_t power_flags, battery_mv;
 static uint8_t battery_soc;
-/* A repeated transaction is acknowledged, never repeated (notably SAVE/START). */
+/* A repeated transaction is acknowledged, never repeated (notably SAVE/CLEAR). */
 static uint8_t previous_request[2][PM_MAX_FRAME], previous_length[2], previous_status[2];
 static bool previous_complete[2];
 static uint8_t previous_point[2][20];
@@ -118,12 +118,23 @@ static float convert(int32_t raw)
            (cal.area*PM_PASCAL_PER_MMHG);
 }
 
+static void clear_peak(void)
+{
+    peak_state=(cal.flags&2)?PM_RUNNING:PM_IDLE;
+    peak_count=peak_errors=peak_elapsed=peak_at=0;
+    peak_clock=io->now();peak=minimum=NAN;
+}
+static uint32_t saturated_add(uint32_t a,uint32_t b) { return UINT32_MAX-a<b?UINT32_MAX:a+b; }
+static void peak_time(uint32_t now)
+{
+    if(peak_state==PM_RUNNING) peak_elapsed=saturated_add(peak_elapsed,now-peak_clock);
+    peak_clock=now;
+}
 static void reset_filter(void)
 {
     filter_valid=false;
     /* A displayed result must never use a mixture of calibration scales. */
-    peak_state=PM_IDLE; peak_count=peak_errors=peak_elapsed=peak_at=0;
-    peak=minimum=NAN;
+    clear_peak();
     pressure=sample_valid?convert(latest_raw):NAN;
     filtered=pressure;
 }
@@ -138,7 +149,7 @@ void PressureMonitor_Init(const PressureMonitorPort *port)
     memset(previous_length,0,sizeof(previous_length)); memset(previous_complete,0,sizeof(previous_complete));
     sample_valid=adc_ready=filter_valid=saturated=false;
     last_sample=last_report=io->now();
-    peak_started=peak_duration=0; latest_raw=0; power_flags=0; battery_soc=255; battery_mv=0;
+    peak_clock=io->now(); latest_raw=0; power_flags=0; battery_soc=255; battery_mv=0;
     uint8_t p[PM_STORE_SIZE]; Calibration candidate; uint32_t gen;
     if(io->read_store(PM_STORE_A,p,sizeof(p)) && decode_record(p,&candidate,&gen)) {
         cal=candidate; generation=gen; active_slot=PM_STORE_A;
@@ -167,7 +178,7 @@ static void request(const uint8_t *f, uint8_t length)
     uint8_t channel=reply_channel;
     if(command==PM_HELLO && n==0) {
         if(!collect_command) previous_length[channel]=0; /* A new host session. */
-        const uint8_t info[]={1,0,0x4A,0x01}; /* firmware 1.0, nominal 330 SPS */
+        const uint8_t info[]={1,1,0x4A,0x01}; /* firmware 1.1, continuous peak, nominal 330 SPS */
         send(PM_INFO,sequence,info,sizeof(info)); config(sequence); return;
     }
     if(command==PM_GET_CONFIG && n==0) { config(sequence); return; }
@@ -182,8 +193,7 @@ static void request(const uint8_t *f, uint8_t length)
     if(collect_command) { ack(command,sequence,PM_BUSY); return; }
     memcpy(previous_request[channel],f,length); previous_length[channel]=length; previous_complete[channel]=false;
     if((command==PM_TARE || command==PM_POINT) && n==0) {
-        if(peak_state==PM_RUNNING) status=PM_BUSY;
-        else if(!sample_valid || io->now()-last_sample>PM_FRESH_MS) status=PM_SENSOR_ERROR;
+        if(!sample_valid || io->now()-last_sample>PM_FRESH_MS) status=PM_SENSOR_ERROR;
         else {
             collect_command=command; collect_sequence=sequence; collect_channel=channel; collect_started=io->now();
             collect_count=0; collect_mean=collect_m2=0; collect_error=false;
@@ -192,30 +202,15 @@ static void request(const uint8_t *f, uint8_t length)
         }
     } else if(command==PM_SET_CONFIG && n==13) {
         Calibration candidate={(int32_t)u32(p),getf(p+4),getf(p+8),p[12]};
-        if(peak_state==PM_RUNNING) status=PM_BUSY;
-        else if(!calibration_valid(&candidate)) status=PM_RANGE;
+        if(!calibration_valid(&candidate)) status=PM_RANGE;
         else { cal=candidate; dirty=true; reset_filter(); config(sequence); }
     } else if(command==PM_SAVE && n==0) {
-        if(peak_state==PM_RUNNING) status=PM_BUSY;
-        else if(!calibration_valid(&cal)) status=PM_NOT_ZEROED;
+        if(!calibration_valid(&cal)) status=PM_NOT_ZEROED;
         else if(!save()) status=PM_STORAGE_ERROR;
         else config(sequence);
-    } else if(command==PM_START && n==4) {
-        uint32_t duration=u32(p);
-        if(peak_state==PM_RUNNING) status=PM_BUSY;
-        else if(!(cal.flags&2)) status=PM_NOT_ZEROED;
-        else if(!sample_valid || io->now()-last_sample>PM_FRESH_MS) status=PM_SENSOR_ERROR;
-        else if(duration<100U || duration>3600000U) status=PM_RANGE;
-        else {
-            peak_duration=duration; peak_started=io->now(); peak_elapsed=peak_count=peak_errors=peak_at=0;
-            peak=minimum=NAN; peak_state=PM_RUNNING;
-        }
-    } else if(command==PM_STOP && n==0) {
-        if(peak_state==PM_RUNNING) {
-            peak_elapsed=io->now()-peak_started;
-            if(peak_elapsed>peak_duration) peak_elapsed=peak_duration;
-            peak_state=PM_ABORTED;
-        }
+    } else if(command==PM_CLEAR && n==0) {
+        if(!(cal.flags&2)) status=PM_NOT_ZEROED;
+        else clear_peak();
     } else status=PM_BAD_REQUEST;
     previous_status[channel]=status; previous_complete[channel]=true; ack(command,sequence,status);
 }
@@ -251,12 +246,10 @@ void PressureMonitor_Sample(bool valid, int32_t raw)
     saturated=valid && (raw<=-8388600L || raw>=8388600L);
     valid=valid && !saturated && raw>=-8388608L && raw<=8388607L;
     sample_valid=valid;
-    if(peak_state==PM_RUNNING && now-peak_started>=peak_duration) {
-        peak_state=PM_COMPLETE; peak_elapsed=peak_duration;
-    }
+    peak_time(now);
     if(!valid) {
         filter_valid=false;
-        if(peak_state==PM_RUNNING) peak_errors++;
+        if(peak_state==PM_RUNNING) peak_errors=saturated_add(peak_errors,1);
         if(collect_command) collect_error=true;
         return;
     }
@@ -267,9 +260,9 @@ void PressureMonitor_Sample(bool valid, int32_t raw)
     filtered=filter_valid?filtered+alpha*(pressure-filtered):pressure;
     filter_valid=true;
     if(peak_state==PM_RUNNING) {
-        if(!peak_count || pressure>peak) { peak=pressure; peak_at=now-peak_started; }
+        if(!peak_count || pressure>peak) { peak=pressure; peak_at=peak_elapsed; }
         if(!peak_count || pressure<minimum) minimum=pressure;
-        peak_count++;
+        peak_count=saturated_add(peak_count,1);
     }
     if(collect_command && now-collect_started<PM_COLLECT_MS) {
         collect_count++;
@@ -292,10 +285,7 @@ void PressureMonitor_AdcReady(bool ready) { adc_ready=ready; }
 void PressureMonitor_Tick(void)
 {
     uint32_t now=io->now();
-    if(peak_state==PM_RUNNING) {
-        peak_elapsed=now-peak_started;
-        if(peak_elapsed>=peak_duration) { peak_elapsed=peak_duration; peak_state=PM_COMPLETE; }
-    }
+    peak_time(now);
     if(collect_command && now-collect_started>=PM_COLLECT_MS) {
         reply_channel=collect_channel;
         uint8_t status=PM_OK;
@@ -320,7 +310,7 @@ void PressureMonitor_Tick(void)
         putf(p+8,fresh&&(cal.flags&2)?pressure:NAN);
         putf(p+12,fresh&&(cal.flags&2)?filtered:NAN);
         putf(p+16,peak); putf(p+20,minimum); put32(p+24,peak_elapsed);
-        put32(p+28,peak_duration); put32(p+32,peak_count); put16(p+36,flags);
+        put32(p+28,0); put32(p+32,peak_count); put16(p+36,flags);
         p[38]=peak_state; p[39]=battery_soc; put16(p+40,battery_mv);
         put32(p+42,peak_errors); put16(p+46,(uint16_t)(age>65535U?65535U:age));
         put32(p+48,peak_at);putf(p+52,cal.area);

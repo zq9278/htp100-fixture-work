@@ -4,6 +4,7 @@ import math
 import struct
 
 HELLO, GET_CONFIG, TARE, POINT, SET_CONFIG, SAVE, START, STOP = range(1, 9)
+CLEAR = 9  # Firmware 1.1: zero payload; clear and immediately resume continuous peak.
 INFO, CONFIG, ACK, POINT_RESULT, STATUS = 0x81, 0x82, 0x83, 0x84, 0x90
 VALID, CALIBRATED, ZEROED, CHARGING, FULL, POWER_VALID, DIRTY, SATURATED, ADC_READY = (1 << i for i in range(9))
 ERRORS = {0: "成功", 1: "命令格式错误或固件不兼容", 2: "设备忙，请先结束当前采集",

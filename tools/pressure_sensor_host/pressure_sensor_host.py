@@ -1,6 +1,6 @@
 """Windows pressure sensor bench tool. Run with Python or the packaged EXE."""
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 import csv
@@ -101,7 +101,6 @@ class Window(W.QMainWindow):
         self.log_file = self.log_writer = None
         self.log_rows = 0
         self.history = []
-        self.seen_finished = False
         self.last_status_sequence = None
         self.lost_frames = 0
         self.build_ui()
@@ -172,7 +171,7 @@ class Window(W.QMainWindow):
         layout.addWidget(self.tare_button)
         cards.addWidget(live, 1)
 
-        peak = W.QGroupBox("定时峰值捕捉")
+        peak = W.QGroupBox("持续捕捉最大值")
         layout = W.QVBoxLayout(peak)
         self.peak_label = W.QLabel("— mmHg")
         self.peak_label.setStyleSheet("font-size:32pt;font-weight:700;color:#0f776a;")
@@ -180,25 +179,15 @@ class Window(W.QMainWindow):
         self.peak_load_label = W.QLabel("峰值力：— N   峰值克数：— g")
         self.peak_load_label.setStyleSheet("font-size:14pt;color:#0f776a;")
         layout.addWidget(self.peak_load_label)
-        self.peak_detail = W.QLabel("未开始 · 捕捉下位机采样中的最大值")
+        self.peak_detail = W.QLabel("建立零点后自动捕捉 · 点击清除开始新一轮")
         layout.addWidget(self.peak_detail)
-        self.progress = W.QProgressBar()
-        self.progress.setRange(0, 1000)
-        layout.addWidget(self.progress)
         controls = W.QHBoxLayout()
-        controls.addWidget(W.QLabel("时长"))
-        self.duration = W.QDoubleSpinBox()
-        self.duration.setRange(0.1, 3600)
-        self.duration.setDecimals(1)
-        self.duration.setValue(10)
-        self.duration.setSuffix(" 秒")
-        controls.addWidget(self.duration)
-        self.start_button = W.QPushButton("开始捕捉")
-        self.start_button.clicked.connect(lambda: self.command(P.START, struct.pack("<I", round(self.duration.value()*1000))))
-        controls.addWidget(self.start_button)
-        self.stop_button = W.QPushButton("提前结束")
-        self.stop_button.clicked.connect(lambda: self.command(P.STOP))
-        controls.addWidget(self.stop_button)
+        self.clear_button = W.QPushButton("清除峰值，重新捕捉")
+        self.clear_button.clicked.connect(lambda: self.command(P.CLEAR))
+        controls.addWidget(self.clear_button)
+        self.snapshot_button = W.QPushButton("记录当前峰值")
+        self.snapshot_button.clicked.connect(self.record_peak)
+        controls.addWidget(self.snapshot_button)
         layout.addLayout(controls)
         cards.addWidget(peak, 1)
         root.addLayout(cards)
@@ -266,7 +255,7 @@ class Window(W.QMainWindow):
 
         results = W.QWidget()
         rl = W.QVBoxLayout(results)
-        self.history_table = self.table(["电脑时间", "结果", "时长 s", "峰值 mmHg", "最小 mmHg", "峰值时刻 s", "样本数", "异常读数", "峰值力 N", "峰值克数 g"])
+        self.history_table = self.table(["电脑时间", "结果", "累计 s", "峰值 mmHg", "最小 mmHg", "峰值时刻 s", "样本数", "异常读数", "峰值力 N", "峰值克数 g"])
         rl.addWidget(self.history_table)
         export = W.QPushButton("导出峰值结果 CSV")
         export.clicked.connect(self.export_history)
@@ -282,8 +271,9 @@ class Window(W.QMainWindow):
         <b>校准流程</b><p>采集空载及砝码点 → 计算校准 → 应用到 RAM → 用独立砝码复核 → 保存设备参数。
         日常开机空载去皮即可。更换传感器、加载结构或受力面积后重新校准。
         去皮只改变零点；已校准灵敏度保持不变。去皮结果在点击保存前仅存于 RAM。</p>
-        <b>峰值含义</b><p>由下位机在指定时间窗口内逐个有效读数比较，记录未滤波最大值及其时刻。
-        大字实时读数经过显示滤波，瞬时读数和峰值不滤波。完成结果保留至下次捕捉或修改校准。
+        <b>峰值含义</b><p>建立零点后，下位机自动持续比较每个有效读数，记录未滤波最大值及其时刻，不设时长也不自动停止。
+        点击清除即重新捕捉，不影响实时值与校准参数；去皮或应用新校准也会开始新一轮。
+        大字实时读数经过显示滤波，瞬时读数和峰值不滤波。“记录当前峰值”保存界面快照，捕捉继续。
         异常读数／传感器断线会标记结果不完整。ADC 标称 330 SPS，实际采集率受通信和 I²C 访问影响，
         无法保证捕获两次采样之间的极短脉冲；这里的峰值是采样峰值。</p>
         <b>充电与记录</b><p>沿用原 BQ25895 充电配置，可边充电边测量；电量计故障时显示未知。
@@ -344,7 +334,6 @@ class Window(W.QMainWindow):
             self.last_device_ms = None
             self.last_status_sequence = None
             self.lost_frames = 0
-            self.seen_finished = False
             self.connected_at = self.last_rx = time.monotonic()
             self.send(P.HELLO)
             self.connect_button.setText("断开")
@@ -428,11 +417,11 @@ class Window(W.QMainWindow):
 
     def handle(self, packet):
         if packet.command == P.INFO:
-            if len(packet.payload) != 4 or packet.payload[:2] != b"\x01\x00":
+            if len(packet.payload) != 4 or packet.payload[:2] != b"\x01\x01":
                 raise ValueError("设备固件版本不兼容")
             self.identified = True
-            self.connection.setText("设备已连接 · 固件 1.0")
-            self.tell("连接成功。可空载去皮、采集校准点或开始峰值捕捉。")
+            self.connection.setText("设备已连接 · 固件 1.1")
+            self.tell("连接成功。建立零点后持续捕捉最大值，点击清除即可重新累计。")
         elif packet.command == P.CONFIG:
             config = P.Config.decode(packet.payload)
             if self.pending and self.pending["sequence"] == packet.sequence and self.pending["command"] == P.SET_CONFIG:
@@ -487,8 +476,14 @@ class Window(W.QMainWindow):
                         self.tell("缺少参数回读，执行结果未知，请读取设备参数。", True)
                     else:
                         self.tell({P.SAVE:"已写入 EEPROM 并校验，断电后保留。", P.SET_CONFIG:"校准已应用到 RAM，请复核后保存。", P.TARE:"空载去皮完成；灵敏度保持不变，保存后断电保留。"}[pending["command"]])
-                else:
-                    self.tell("捕捉已开始，以设备计时为准。" if pending["command"] == P.START else "已提前结束，保留部分捕捉结果。")
+                elif pending["command"] == P.CLEAR:
+                    if self.telemetry:
+                        self.telemetry = replace(self.telemetry, peak=math.nan, minimum=math.nan,
+                                                 elapsed_ms=0, count=0, errors=0, peak_at_ms=0)
+                    self.peak_label.setText("— mmHg")
+                    self.peak_load_label.setText("峰值力：— N   峰值克数：— g")
+                    self.peak_detail.setText("峰值已清除，正在持续捕捉")
+                    self.tell("峰值已清除，正在持续捕捉；实时值和校准参数保持不变。")
         self.sync_buttons()
 
     def show_config(self):
@@ -518,24 +513,12 @@ class Window(W.QMainWindow):
         self.peak_label.setText(f"{number(t.peak)} mmHg")
         peak_force, peak_grams = mmhg_to_force_mass(t.peak, t.area_mm2)
         self.peak_load_label.setText(f"峰值力：{number(peak_force, 3)} N   峰值克数：{number(peak_grams)} g")
-        states = ("未开始", "捕捉中", "已完成", "提前结束")
         quality = f" · 有 {t.errors} 次异常，结果不完整" if t.errors else ""
-        if t.state in (2, 3) and t.count == 0:
-            quality = " · 无有效样本，结果无效"
         estimated = " · 估算值" if not t.flags & P.CALIBRATED and t.state else ""
-        self.peak_detail.setText(f"{states[t.state]} · {t.elapsed_ms/1000:.1f}/{t.duration_ms/1000:.1f} 秒 · {t.count} 样本{estimated}{quality}")
+        state = "持续捕捉最大值" if t.state == 1 else "等待去皮或校准"
+        self.peak_detail.setText(f"{state} · 清除后累计 {t.elapsed_ms/1000:.1f} 秒 · {t.count} 样本{estimated}{quality}")
         self.peak_detail.setWordWrap(True)
-        self.progress.setValue(round(1000*t.elapsed_ms/t.duration_ms) if t.duration_ms else 0)
         self.chart.add(t)
-        if t.state in (0, 1):
-            self.seen_finished = False
-        elif not self.seen_finished:
-            self.seen_finished = True
-            row = [datetime.now().isoformat(timespec="seconds"), states[t.state]+quality+estimated,
-                   t.elapsed_ms/1000, number(t.peak, 3), number(t.minimum, 3), t.peak_at_ms/1000, t.count, t.errors,
-                   number(peak_force, 3), number(peak_grams)]
-            self.history.append(row)
-            self.add_table_row(self.history_table, row)
         if self.log_writer:
             c = self.device_config
             instant_force, instant_grams = mmhg_to_force_mass(t.pressure if fresh else math.nan, t.area_mm2)
@@ -549,26 +532,37 @@ class Window(W.QMainWindow):
     def sync_buttons(self):
         ready = bool(self.serial and self.identified and self.device_config)
         free = ready and self.pending is None
-        running = self.telemetry is not None and self.telemetry.state == 1
         fresh = self.telemetry is not None and bool(self.telemetry.flags & P.VALID) and time.monotonic()-self.last_rx < 1
         self.ports.setEnabled(not self.serial)
         self.refresh.setEnabled(not self.serial)
-        self.tare_button.setEnabled(free and fresh and not running)
-        self.point_button.setEnabled(free and fresh and not running)
-        self.start_button.setEnabled(free and fresh and not running and bool(self.device_config.flags & 2))
-        self.stop_button.setEnabled(free and running)
-        self.duration.setEnabled(not running)
+        self.tare_button.setEnabled(free and fresh)
+        self.point_button.setEnabled(free and fresh)
+        self.clear_button.setEnabled(free and bool(self.device_config.flags & 2))
+        self.snapshot_button.setEnabled(ready and fresh and self.telemetry.count > 0 and math.isfinite(self.telemetry.peak))
         self.read_button.setEnabled(free)
-        self.apply_button.setEnabled(free and not running and self.fit is not None)
-        self.save_button.setEnabled(free and not running and self.device_config.flags == 3)
+        self.apply_button.setEnabled(free and self.fit is not None)
+        self.save_button.setEnabled(free and self.device_config.flags == 3)
         self.fit_button.setEnabled(len(self.calibration_points) >= 2 and not self.pending)
         self.remove_button.setEnabled(not self.pending and bool(self.calibration_points))
-        self.area.setEnabled(not self.pending and not running)
+        self.area.setEnabled(not self.pending)
         self.mass.setEnabled(not self.pending)
         self.record_button.setEnabled(ready or bool(self.log_file))
 
     def capture_point(self):
         self.command(P.POINT, grams=self.mass.value())
+
+    def record_peak(self):
+        t = self.telemetry
+        if not t or time.monotonic()-self.last_rx >= 1 or not t.count or not math.isfinite(t.peak):
+            self.tell("没有可记录的峰值。", True)
+            return
+        force, grams = mmhg_to_force_mass(t.peak, t.area_mm2)
+        row = [datetime.now().isoformat(timespec="seconds"), "持续捕捉界面快照",
+               t.elapsed_ms/1000, number(t.peak, 3), number(t.minimum, 3), t.peak_at_ms/1000,
+               t.count, t.errors, number(force, 3), number(grams)]
+        self.history.append(row)
+        self.add_table_row(self.history_table, row)
+        self.tell("已记录当前界面峰值快照，持续捕捉继续。")
 
     @staticmethod
     def add_table_row(table, values):
