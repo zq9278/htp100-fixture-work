@@ -16,7 +16,7 @@ from serial.tools import list_ports
 from PyQt5 import QtCore, QtGui, QtWidgets as W
 
 import protocol as P
-from calibration import CalibrationPoint, fit_points, mass_to_mmhg
+from calibration import CalibrationPoint, fit_points, mass_to_mmhg, mmhg_to_force_mass
 
 
 def number(value, digits=1):
@@ -86,7 +86,7 @@ class Window(W.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("HTP100 PC压力调试与砝码校准 · G0 USART1")
-        self.resize(1240, 900)
+        self.resize(1240, 930)
         self.serial = None
         self.decoder = P.Decoder()
         self.sequence = secrets.randbelow(60000)+1
@@ -158,6 +158,9 @@ class Window(W.QMainWindow):
         self.pressure_label = W.QLabel("— mmHg")
         self.pressure_label.setStyleSheet("font-size:32pt;font-weight:700;color:#175cab;")
         layout.addWidget(self.pressure_label)
+        self.load_label = W.QLabel("力值：— N   等效克数：— g")
+        self.load_label.setStyleSheet("font-size:14pt;color:#175cab;")
+        layout.addWidget(self.load_label)
         self.raw_label = W.QLabel("瞬时：— mmHg   ADC：—")
         self.sensor_label = W.QLabel("请连接设备")
         self.power_label = W.QLabel("供电：—   电量：—   电池：—")
@@ -174,6 +177,9 @@ class Window(W.QMainWindow):
         self.peak_label = W.QLabel("— mmHg")
         self.peak_label.setStyleSheet("font-size:32pt;font-weight:700;color:#0f776a;")
         layout.addWidget(self.peak_label)
+        self.peak_load_label = W.QLabel("峰值力：— N   峰值克数：— g")
+        self.peak_load_label.setStyleSheet("font-size:14pt;color:#0f776a;")
+        layout.addWidget(self.peak_load_label)
         self.peak_detail = W.QLabel("未开始 · 捕捉下位机采样中的最大值")
         layout.addWidget(self.peak_detail)
         self.progress = W.QProgressBar()
@@ -260,7 +266,7 @@ class Window(W.QMainWindow):
 
         results = W.QWidget()
         rl = W.QVBoxLayout(results)
-        self.history_table = self.table(["电脑时间", "结果", "时长 s", "峰值 mmHg", "最小 mmHg", "峰值时刻 s", "样本数", "异常读数"])
+        self.history_table = self.table(["电脑时间", "结果", "时长 s", "峰值 mmHg", "最小 mmHg", "峰值时刻 s", "样本数", "异常读数", "峰值力 N", "峰值克数 g"])
         rl.addWidget(self.history_table)
         export = W.QPushButton("导出峰值结果 CSV")
         export.clicked.connect(self.export_history)
@@ -363,6 +369,7 @@ class Window(W.QMainWindow):
         self.connect_button.setText("连接设备")
         self.connection.setText("未连接")
         self.pressure_label.setText("— mmHg")
+        self.load_label.setText("力值：— N   等效克数：— g")
         self.raw_label.setText("瞬时：— mmHg   ADC：—")
         self.sensor_label.setText("实时数据已失效")
         self.power_label.setText("供电：—   电量：—   电池：—")
@@ -407,6 +414,7 @@ class Window(W.QMainWindow):
         age = now-self.last_rx
         if age > 1:
             self.pressure_label.setText("— mmHg")
+            self.load_label.setText("力值：— N   等效克数：— g")
             self.raw_label.setText("瞬时：— mmHg   ADC：—")
             self.sensor_label.setText("通信数据已过期")
         if age > 4 and self.identified:
@@ -493,6 +501,8 @@ class Window(W.QMainWindow):
         self.telemetry = t
         fresh = t.flags & P.VALID
         self.pressure_label.setText(f"{number(t.filtered) if fresh else '—'} mmHg")
+        force, grams = mmhg_to_force_mass(t.filtered if fresh else math.nan, t.area_mm2)
+        self.load_label.setText(f"力值：{number(force, 3)} N   等效克数：{number(grams)} g")
         self.raw_label.setText(f"瞬时：{number(t.pressure) if fresh else '—'} mmHg   ADC：{t.raw if fresh else '—'}")
         if t.flags & P.SATURATED:
             state = "ADC 饱和：检查过载或接线"
@@ -506,6 +516,8 @@ class Window(W.QMainWindow):
         supply = ("已充满" if t.flags & P.FULL else "外部供电／充电" if t.flags & P.CHARGING else "电池供电") if t.flags & P.POWER_VALID else "未知"
         self.power_label.setText(f"供电：{supply}   电量：{str(t.soc)+'%' if t.soc<=100 else '未知'}   电池：{str(t.battery_mv)+' mV' if t.battery_mv else '未知'}")
         self.peak_label.setText(f"{number(t.peak)} mmHg")
+        peak_force, peak_grams = mmhg_to_force_mass(t.peak, t.area_mm2)
+        self.peak_load_label.setText(f"峰值力：{number(peak_force, 3)} N   峰值克数：{number(peak_grams)} g")
         states = ("未开始", "捕捉中", "已完成", "提前结束")
         quality = f" · 有 {t.errors} 次异常，结果不完整" if t.errors else ""
         if t.state in (2, 3) and t.count == 0:
@@ -520,12 +532,15 @@ class Window(W.QMainWindow):
         elif not self.seen_finished:
             self.seen_finished = True
             row = [datetime.now().isoformat(timespec="seconds"), states[t.state]+quality+estimated,
-                   t.elapsed_ms/1000, number(t.peak, 3), number(t.minimum, 3), t.peak_at_ms/1000, t.count, t.errors]
+                   t.elapsed_ms/1000, number(t.peak, 3), number(t.minimum, 3), t.peak_at_ms/1000, t.count, t.errors,
+                   number(peak_force, 3), number(peak_grams)]
             self.history.append(row)
             self.add_table_row(self.history_table, row)
         if self.log_writer:
             c = self.device_config
+            instant_force, instant_grams = mmhg_to_force_mass(t.pressure if fresh else math.nan, t.area_mm2)
             self.log_writer.writerow([datetime.now().isoformat(timespec="milliseconds"), *asdict(t).values(),
+                                      instant_force, instant_grams, force, grams, peak_force, peak_grams,
                                       c.zero if c else "", c.grams_per_count if c else "", c.area if c else "", self.lost_frames])
             self.log_rows += 1
             if self.log_rows % 20 == 0:
@@ -636,7 +651,7 @@ class Window(W.QMainWindow):
         try:
             self.log_file = open(path, "w", newline="", encoding="utf-8-sig")
             self.log_writer = csv.writer(self.log_file)
-            self.log_writer.writerow(["电脑时间", *P.Telemetry.__dataclass_fields__, "zero_counts", "grams_per_count", "area_mm2", "telemetry_lost_frames"])
+            self.log_writer.writerow(["电脑时间", *P.Telemetry.__dataclass_fields__, "force_n", "mass_g", "filtered_force_n", "filtered_mass_g", "peak_force_n", "peak_mass_g", "zero_counts", "grams_per_count", "config_area_mm2", "telemetry_lost_frames"])
             self.log_file.flush()
             self.log_rows = 0
             self.record_button.setText("停止记录 CSV")

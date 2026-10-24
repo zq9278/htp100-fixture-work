@@ -126,12 +126,15 @@ class Telemetry:
     errors: int
     age_ms: int
     peak_at_ms: int
+    area_mm2: float = math.nan
 
     @classmethod
     def decode(cls, payload: bytes):
-        if len(payload) != 52:
+        if len(payload) not in (52, 56):
             raise ValueError("遥测长度不匹配")
-        result = cls(*struct.unpack("<IiffffIIIHBBHIHI", payload))
+        result = cls(*struct.unpack("<IiffffIIIHBBHIHI" + ("f" if len(payload) == 56 else ""), payload))
+        if len(payload) == 56 and not (math.isfinite(result.area_mm2) and 1 <= result.area_mm2 <= 100000):
+            raise ValueError("遥测受力面积无效")
         if result.state > 3 or result.soc not in (*range(101), 255):
             raise ValueError("无效设备状态")
         return result

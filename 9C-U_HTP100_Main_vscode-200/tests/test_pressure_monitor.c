@@ -72,6 +72,7 @@ int main(void) {
     CHECK((get16(p+36)&(PM_VALID|PM_CALIBRATED|PM_CHARGING|PM_ADC_READY))==
           (PM_VALID|PM_CALIBRATED|PM_CHARGING|PM_ADC_READY));
     CHECK(p[39]==75 && get16(p+40)==3900);
+    CHECK(fabsf(getf(p+52)-84.8f)<0.001f); /* Area travels with its pressure sample. */
     configuration(-0.02f); p=status();
     CHECK(fabsf(getf(p+8)-getf(p+12))<0.0001f); /* No old-scale filtered display after config. */
     configuration(-0.01f); PressureMonitor_Sample(true,99900);

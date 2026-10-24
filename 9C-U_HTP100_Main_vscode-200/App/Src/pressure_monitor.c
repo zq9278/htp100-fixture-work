@@ -311,7 +311,7 @@ void PressureMonitor_Tick(void)
         ack(collect_command,collect_sequence,status); collect_command=0;
     }
     if(now-last_report>=PM_REPORT_MS) {
-        uint8_t p[52]; uint32_t age=now-last_sample;
+        uint8_t p[56]; uint32_t age=now-last_sample;
         bool fresh=sample_valid && age<=PM_FRESH_MS;
         uint16_t flags=(uint16_t)(power_flags|(fresh?PM_VALID:0)|(dirty?PM_DIRTY:0)|
             ((cal.flags&1)?PM_CALIBRATED:0)|((cal.flags&2)?PM_ZEROED:0)|
@@ -323,6 +323,7 @@ void PressureMonitor_Tick(void)
         put32(p+28,peak_duration); put32(p+32,peak_count); put16(p+36,flags);
         p[38]=peak_state; p[39]=battery_soc; put16(p+40,battery_mv);
         put32(p+42,peak_errors); put16(p+46,(uint16_t)(age>65535U?65535U:age));
-        put32(p+48,peak_at); send(PM_STATUS,++tx_sequence,p,sizeof(p)); last_report=now;
+        put32(p+48,peak_at);putf(p+52,cal.area);
+        send(PM_STATUS,++tx_sequence,p,sizeof(p)); last_report=now;
     }
 }

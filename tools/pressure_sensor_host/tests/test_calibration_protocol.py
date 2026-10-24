@@ -5,7 +5,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from calibration import CalibrationPoint, fit_points, mass_to_mmhg
+from calibration import CalibrationPoint, fit_points, mass_to_mmhg, mmhg_to_force_mass
 from protocol import Config, Decoder, PointSample, Telemetry, frame, crc16
 
 
@@ -58,5 +58,19 @@ def test_wire_config_and_telemetry():
     wire = struct.pack("<IiffffIIIHBBHIHI", 1000, -123, 350., 348., 400., 1., 1000, 1000, 250, 7, 2, 80, 3900, 0, 3, 500)
     telemetry = Telemetry.decode(wire)
     assert telemetry.peak == 400 and telemetry.count == 250 and telemetry.peak_at_ms == 500
+    assert math.isnan(telemetry.area_mm2)  # Older 52-byte firmware cannot provide coherent N/g.
+    telemetry = Telemetry.decode(wire+struct.pack("<f", 84.8))
+    assert telemetry.area_mm2 == pytest.approx(84.8)
     with pytest.raises(ValueError):
         Config.decode(struct.pack("<iffBIB", 0, math.nan, 84.8, 3, 0, 0))
+
+
+def test_three_units_share_area_and_preserve_sign():
+    for area in (42.4, 84.8, 100):
+        for mass in (-100, 0, 350, 500):
+            pressure = mass_to_mmhg(mass, area)
+            force, grams = mmhg_to_force_mass(pressure, area)
+            assert grams == pytest.approx(mass)
+            assert force == pytest.approx(mass*9.80665/1000)
+    assert all(math.isnan(v) for v in mmhg_to_force_mass(350, math.nan))
+    assert all(math.isnan(v) for v in mmhg_to_force_mass(math.nan, 84.8))

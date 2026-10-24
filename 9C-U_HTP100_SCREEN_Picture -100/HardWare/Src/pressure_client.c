@@ -34,11 +34,16 @@ static void disconnect(const char *message) {
 }
 void PressureClient_Init(const PressureClientPort *port) {
     io=port;memset(&s,0,sizeof(s));used=0;sequence=(uint16_t)io->now();
-    s.pressure=s.filtered=s.peak=s.minimum=NAN;s.soc=255;s.message="正在连接G0下位机";
+    s.pressure=s.filtered=s.peak=s.minimum=s.sample_area=NAN;s.soc=255;s.message="正在连接G0下位机";
     identified=have_clock=false;last_rx=last_config=io->now();last_hello=io->now()-1000U;
 }
 const PressureClientState *PressureClient_Status(void) { return &s; }
 float PressureClient_Mmhg(float grams,float area) { return grams*9.80665f*1000.0f/(area*133.3224f); }
+float PressureClient_Force(float mmhg,float area) {
+    if(!isfinite(mmhg) || !isfinite(area) || area<1 || area>100000) return NAN;
+    return mmhg*133.3224f*area*1.0e-6f;
+}
+float PressureClient_Grams(float mmhg,float area) { return PressureClient_Force(mmhg,area)*1000.0f/9.80665f; }
 static bool calibration(const uint8_t *p,PcCalibration *c) {
     c->zero=(int32_t)u32(p);c->scale=getf(p+4);c->area=getf(p+8);c->flags=p[12];c->generation=u32(p+13);c->dirty=p[17]!=0;
     return c->zero>=-8388608L && c->zero<=8388607L && isfinite(c->scale) &&
@@ -63,7 +68,7 @@ static void received(const uint8_t *f) {
         }
         return;
     }
-    if(cmd==PM_STATUS && n==52) {
+    if(cmd==PM_STATUS && (n==52 || n==56)) {
         uint32_t clock=u32(p);
         if(have_clock && (int32_t)(clock-s.device_ms)<0) { disconnect("G0已重启，正在重新连接");return; }
         have_clock=true;s.device_ms=clock;
@@ -73,6 +78,10 @@ static void received(const uint8_t *f) {
         s.raw=(int32_t)u32(p+4);s.flags=u16(p+36);
         s.pressure=getf(p+8);s.filtered=getf(p+12);s.peak=getf(p+16);s.minimum=getf(p+20);
         s.elapsed=u32(p+24);s.duration=u32(p+28);s.samples=u32(p+32);
+        /* Units must use the area from this same sample frame, never a stale
+         * configuration read or an area still being edited on the screen. */
+        s.sample_area=n==56?getf(p+52):NAN;
+        if(!isfinite(s.sample_area) || s.sample_area<1 || s.sample_area>100000) s.sample_area=NAN;
         s.peak_state=p[38];s.soc=p[39];s.mv=u16(p+40);s.errors=u32(p+42);s.peak_at=u32(p+48);s.updates++;
         if(old_state==PM_RUNNING && s.peak_state==PM_COMPLETE && !s.pending)
             s.message=s.errors?"捕捉完成，存在异常采样":"捕捉完成，结果已锁存";

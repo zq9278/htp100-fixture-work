@@ -13,6 +13,14 @@ def mass_to_mmhg(grams: float, area_mm2: float) -> float:
     return grams * GRAVITY * 1000 / (area_mm2 * PASCAL_PER_MMHG)
 
 
+def mmhg_to_force_mass(mmhg: float, area_mm2: float) -> tuple[float, float]:
+    """Convert one coherent pressure/area sample to signed N and equivalent g."""
+    if not (math.isfinite(mmhg) and math.isfinite(area_mm2) and 1 <= area_mm2 <= 100000):
+        return math.nan, math.nan
+    force = mmhg * PASCAL_PER_MMHG * area_mm2 * 1e-6
+    return force, force * 1000 / GRAVITY
+
+
 @dataclass(frozen=True)
 class CalibrationPoint:
     grams: float

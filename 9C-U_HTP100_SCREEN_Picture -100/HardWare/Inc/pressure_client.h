@@ -13,7 +13,7 @@ typedef struct {
     uint8_t pending,point_count,peak_state;
     uint16_t flags;
     uint32_t device_ms,elapsed,duration,samples,errors,peak_at,updates;
-    float pressure,filtered,peak,minimum;
+    float pressure,filtered,peak,minimum,sample_area;
     int32_t raw;
     uint8_t soc;
     uint16_t mv;
@@ -32,4 +32,6 @@ bool PressureClient_Fit(float area);
 void PressureClient_RemovePoint(bool all);
 void PressureClient_InvalidateFit(void);
 float PressureClient_Mmhg(float grams,float area);
+float PressureClient_Force(float mmhg,float area);
+float PressureClient_Grams(float mmhg,float area);
 #endif

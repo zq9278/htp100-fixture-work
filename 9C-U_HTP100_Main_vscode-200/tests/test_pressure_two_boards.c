@@ -60,6 +60,11 @@ int main(void) {
     advance(50,100);advance(5,500);advance(195,100);
     CHECK(s->peak_state==PM_COMPLETE && s->peak_at==55 && s->errors==0);
     CHECK(fabsf(s->peak-433.7023f)<0.01f && fabsf(s->pressure-86.7405f)<0.01f);
+    CHECK(fabsf(PressureClient_Force(s->peak,s->sample_area)-4.903325f)<0.00001f);
+    CHECK(fabsf(PressureClient_Grams(s->peak,s->sample_area)-500.0f)<0.001f);
+    CHECK(fabsf(PressureClient_Grams(s->pressure,s->sample_area)-100.0f)<0.001f);
+    CHECK(fabsf(PressureClient_Force(s->pressure,s->sample_area)+PressureClient_Force(-s->pressure,s->sample_area))<0.0001f);
+    CHECK(isnan(PressureClient_Force(s->pressure,NAN)));
     CHECK(!PressureClient_Command(PM_START,0));
     CHECK(PressureClient_Command(PM_START,10000));pump();advance(50,100);
     PressureClient_Init(&h7);advance(100,100);CHECK(s->connected && s->peak_state==PM_RUNNING);

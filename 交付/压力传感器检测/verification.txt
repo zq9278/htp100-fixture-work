@@ -3,9 +3,9 @@ Date: 2026-10-24 (Asia/Shanghai)
 Branch: 压力传感器检测
 
 PASS: Release firmware built with ARM GCC 14.3.1 / CMake / Ninja.
-      G0 FLASH 58776 bytes; static RAM and reserved heap/stack 23384 bytes.
-      H7 new-panel FLASH 702940 bytes; old-panel FLASH 702964 bytes.
-      H7 DTCM RAM 22232 bytes; AXI DMA buffer 256 bytes; LVGL uses existing SDRAM.
+      G0 FLASH 58788 bytes; static RAM and reserved heap/stack 23384 bytes.
+      H7 new-panel FLASH 703932 bytes; old-panel FLASH 703956 bytes.
+      H7 DTCM RAM 22248 bytes; AXI DMA buffer 256 bytes; LVGL uses existing SDRAM.
       Charger/gauge task stack is allocated from the existing FreeRTOS heap.
 PASS: Production ARM measurement engine tests; 119 wire frames decoded by PC parser.
       Pressure conversion, instantaneous-vs-filtered display, calibration reset,
@@ -22,9 +22,11 @@ PASS: Actual new/old H7 LVGL ELF rendering linked to the real G0 simulator.
       Touch buttons, tare, 4 mass points, compute/apply/save/readback,
       numeric keyboard READY, persistent input validation, peak display,
       stale pressure/power values and disconnection.
-PASS: 10 pytest cases including real Qt PC GUI to production ARM C USART1 channel.
+PASS: 11 pytest cases including real Qt PC GUI to production ARM C USART1 channel.
       Four-point mass calibration, RAM apply/readback, EEPROM save/reboot,
       5ms sampled peak between telemetry frames, stale display and reconnection.
+      Synchronized mmHg/N/g conversions across areas, signed readings,
+      live/peak labels and stale-unit clearing; 56-byte and legacy frame decoding.
 PASS: Windows EXE built with PyInstaller 6.22.3, startup smoke check (offscreen).
 PASS: All 3 HEX checksum/address/vector validations and J-Link command DryRuns.
       The H7 programmer rejects a G0 image before any probe connection.
