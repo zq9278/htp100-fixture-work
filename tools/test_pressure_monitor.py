@@ -5,7 +5,7 @@ import subprocess
 import sys
 from elftools.elf.elffile import ELFFile
 from unicorn import Uc, UC_ARCH_ARM, UC_MODE_THUMB, UC_MODE_MCLASS
-from unicorn.arm_const import UC_ARM_REG_SP, UC_ARM_REG_LR, UC_ARM_REG_R0
+from unicorn.arm_const import UC_ARM_REG_SP, UC_ARM_REG_LR, UC_ARM_REG_R0, UC_ARM_REG_PC
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "tools/pressure_sensor_host"))
@@ -93,7 +93,8 @@ with two_elf.open("rb") as source:
     entry = elf.get_section_by_name(".symtab").get_symbol_by_name("main")[0]["st_value"]
 two.reg_write(UC_ARM_REG_SP, 0x200F0000)
 two.reg_write(UC_ARM_REG_LR, 0x8001)
-two.emu_start(entry | 1, 0x8000, count=100000000)
+two.emu_start(entry | 1, 0x8000, count=800000000)
+assert two.reg_read(UC_ARM_REG_PC)==0x8000, "Two-board test exceeded its instruction budget"
 result = two.reg_read(UC_ARM_REG_R0)
 assert result == 0, f"Two-board C assertion failed at line {result}"
-print("PASS: real H7 client + G0 engine: discovery, four-point fit, apply/save/readback, peak, H7 reboot, reconnect, independent PC sequence/cache/response routing and busy locks.")
+print("PASS: real H7 client + G0 engine: discovery, fit/apply/save, peak/reconnect, independent UARTs; guided six-point calibration corrects 1.86% gain error, three up/down verification cycles, EEPROM reboot, hysteresis/repeatability rejection, save gating, parameter-change and link interruption.")

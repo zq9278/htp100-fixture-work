@@ -12,14 +12,15 @@ LV_FONT_DECLARE(pressure_font20);
 LV_FONT_DECLARE(pressure_font28);
 LV_FONT_DECLARE(pressure_font48);
 static lv_obj_t *live,*calibration_page,*keyboard,*connection_label,*power_label,*value_label,*raw_label;
-static lv_obj_t *peak_label,*peak_detail,*message_label,*chart,*time_input,*area_input,*mass_input,*point_table,*fit_label,*config_label;
+static lv_obj_t *peak_label,*peak_detail,*message_label,*chart,*time_input,*area_input,*capacity_input,*tolerance_input,*point_table,*fit_label;
+static lv_obj_t *wizard_step_label,*wizard_guide_label,*pm_next_button,*pm_retry_button,*pm_cancel_button;
 static lv_obj_t *load_label,*peak_load_label;
-static lv_obj_t *pm_start_button,*pm_stop_button,*pm_tare_button,*pm_point_button,*pm_apply_button,*pm_save_button,*pm_fit_button;
+static lv_obj_t *pm_start_button,*pm_stop_button,*pm_tare_button;
 static lv_obj_t *pm_cal_button,*pm_back_button;
 static lv_chart_series_t *series;
 static uint32_t rendered,chart_update;
 static uint8_t previous_state;
-static uint8_t displayed_points;
+static uint32_t displayed_revision;
 static bool area_initialized;
 static const char *ui_notice;
 static uint32_t notice_started;
@@ -45,6 +46,12 @@ static void input_event(lv_event_t *e) {
         lv_keyboard_set_textarea(keyboard,target);lv_obj_clear_flag(keyboard,LV_OBJ_FLAG_HIDDEN);
     }
     if(target==area_input && lv_event_get_code(e)==LV_EVENT_VALUE_CHANGED) PressureClient_InvalidateFit();
+    if(target==capacity_input && lv_event_get_code(e)==LV_EVENT_VALUE_CHANGED && !PressureClient_WizardActive()) {
+        char *end;float capacity=strtof(lv_textarea_get_text(capacity_input),&end);
+        if(!*end && isfinite(capacity) && capacity>=5 && capacity<=100000) {
+            char b[24];snprintf(b,sizeof(b),"%.3f",(double)(capacity*0.005f));lv_textarea_set_text(tolerance_input,b);
+        }
+    }
 }
 static lv_obj_t *input(lv_obj_t *parent,const char *value,int x,int y,int w) {
     lv_obj_t *o=lv_textarea_create(parent);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,42);
@@ -59,18 +66,24 @@ static bool numeric(lv_obj_t *o,float low,float high,float *value) {
     *value=x;return true;
 }
 static void show_points(void) {
-    const PressureClientState *s=PressureClient_Status();char b[64];
-    if(displayed_points==s->point_count) return;
-    displayed_points=s->point_count;
-    lv_table_set_row_cnt(point_table,(uint16_t)(s->point_count+1));
-    for(unsigned i=0;i<s->point_count;i++) {
-        const PcPoint *p=s->points+i;
-        snprintf(b,sizeof(b),"%.1f",(double)p->grams);lv_table_set_cell_value(point_table,i+1,0,b);
-        snprintf(b,sizeof(b),"%.0f",(double)p->raw);lv_table_set_cell_value(point_table,i+1,1,b);
-        snprintf(b,sizeof(b),"%.2f",(double)p->sd);lv_table_set_cell_value(point_table,i+1,2,b);
+    const PressureClientState *s=PressureClient_Status();const PcWizard *w=&s->wizard;char b[64];
+    if(displayed_revision==w->revision) return;
+    displayed_revision=w->revision;
+    unsigned count=w->phase==PC_W_OFF?0:s->point_count;
+    lv_table_set_row_cnt(point_table,(uint16_t)(count+w->checks+1));
+    for(unsigned i=0;i<count+w->checks;i++) {
+        bool cal=i<count;unsigned k=cal?i:i-count;
+        const PcCheck *p=cal?w->calibration+k:w->verification+k;
+        snprintf(b,sizeof(b),"%s%u",cal?"标":k<=5?"升":"降",(unsigned)lroundf(p->target/w->capacity*100));
+        lv_table_set_cell_value(point_table,i+1,0,b);
+        snprintf(b,sizeof(b),"%.1f",(double)p->target);lv_table_set_cell_value(point_table,i+1,1,b);
+        if(isfinite(p->before)) snprintf(b,sizeof(b),"%+.2f",(double)p->before);else snprintf(b,sizeof(b),"--");
+        lv_table_set_cell_value(point_table,i+1,2,b);
+        if(isfinite(p->after)) snprintf(b,sizeof(b),"%+.2f",(double)p->after);else snprintf(b,sizeof(b),"--");
+        lv_table_set_cell_value(point_table,i+1,3,b);
     }
 }
-enum { UI_START=1,UI_STOP,UI_TARE,UI_CAL,UI_BACK,UI_POINT,UI_REMOVE,UI_CLEAR,UI_FIT,UI_APPLY,UI_SAVE,UI_READ };
+enum { UI_START=1,UI_STOP,UI_TARE,UI_CAL,UI_BACK,UI_NEXT,UI_RETRY,UI_CANCEL };
 static void action(lv_event_t *e) {
     unsigned id=(unsigned)(uintptr_t)lv_event_get_user_data(e);float value;
     ui_notice=NULL;
@@ -81,18 +94,18 @@ static void action(lv_event_t *e) {
     case UI_STOP: (void)PressureClient_Command(PM_STOP,0);break;
     case UI_TARE: (void)PressureClient_Command(PM_TARE,0);break;
     case UI_CAL: lv_obj_add_flag(live,LV_OBJ_FLAG_HIDDEN);lv_obj_clear_flag(calibration_page,LV_OBJ_FLAG_HIDDEN);break;
-    case UI_BACK: lv_obj_add_flag(calibration_page,LV_OBJ_FLAG_HIDDEN);lv_obj_clear_flag(live,LV_OBJ_FLAG_HIDDEN);break;
-    case UI_POINT:
-        if(numeric(mass_input,0,100000,&value)) (void)PressureClient_Point(value);
-        else { notice("请输入有效砝码质量");return; } break;
-    case UI_REMOVE: PressureClient_RemovePoint(false);break;
-    case UI_CLEAR: PressureClient_RemovePoint(true);break;
-    case UI_FIT:
-        if(numeric(area_input,1,100000,&value)) (void)PressureClient_Fit(value);
-        else { notice("有效面积需为1至100000");return; } break;
-    case UI_APPLY: (void)PressureClient_Command(PM_SET_CONFIG,0);break;
-    case UI_SAVE: (void)PressureClient_Command(PM_SAVE,0);break;
-    case UI_READ: (void)PressureClient_Command(PM_GET_CONFIG,0);break;
+    case UI_BACK:
+        lv_obj_add_flag(keyboard,LV_OBJ_FLAG_HIDDEN);lv_keyboard_set_textarea(keyboard,NULL);
+        lv_obj_add_flag(calibration_page,LV_OBJ_FLAG_HIDDEN);lv_obj_clear_flag(live,LV_OBJ_FLAG_HIDDEN);break;
+    case UI_NEXT:
+        if(!PressureClient_WizardActive()) {
+            float capacity,area,tolerance;
+            if(!numeric(capacity_input,5,100000,&capacity) || !numeric(area_input,1,100000,&area) ||
+               !numeric(tolerance_input,0.001f,10000,&tolerance)) { notice("请检查量程、面积和允许误差");return; }
+            (void)PressureClient_WizardStart(capacity,area,tolerance);
+        } else (void)PressureClient_WizardNext();break;
+    case UI_RETRY: (void)PressureClient_WizardRetry();break;
+    case UI_CANCEL: (void)PressureClient_WizardCancel();break;
     }
     show_points();lv_label_set_text(message_label,PressureClient_Status()->message);rendered=HAL_GetTick()-100U;
 }
@@ -111,7 +124,7 @@ static lv_obj_t *panel(lv_obj_t *root) {
 }
 void PressureUi_Init(void) {
     PressureClient_Init(&port);FixtureBuzzer_Stop();
-    rendered=HAL_GetTick()-100;chart_update=0;previous_state=0;area_initialized=false;displayed_points=255;ui_notice=NULL;
+    rendered=HAL_GetTick()-100;chart_update=0;previous_state=0;area_initialized=false;displayed_revision=UINT32_MAX;ui_notice=NULL;
     lv_obj_t *root=lv_scr_act();lv_obj_clear_flag(root,LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(root,lv_color_hex(0x101C2D),0);lv_obj_set_style_text_color(root,lv_color_hex(0xE9F3FF),0);
     lv_obj_set_style_text_font(root,&pressure_font20,0);live=panel(root);calibration_page=panel(root);
@@ -139,24 +152,25 @@ void PressureUi_Init(void) {
     pm_stop_button=button(live,"提前结束",338,480,124,UI_STOP);
     pm_tare_button=button(live,"空载去皮",18,540,210,UI_TARE);
     pm_cal_button=button(live,"砝码校准",242,540,220,UI_CAL);
-    text(calibration_page,"砝码校准",18,8,295,42,&pressure_font28);pm_back_button=button(calibration_page,"返回",358,8,104,UI_BACK);
-    text(calibration_page,"先采空载0g，再放已知砝码\n每点静置采样1秒，最多8点",18,61,444,57,&pressure_font18);
-    text(calibration_page,"面积 mm²",18,127,130,33,&pressure_font20);area_input=input(calibration_page,"84.8",153,121,160);
-    text(calibration_page,"砝码 g",18,181,130,33,&pressure_font20);mass_input=input(calibration_page,"0",153,175,122);
-    pm_point_button=button(calibration_page,"采集此点",291,173,171,UI_POINT);
-    point_table=lv_table_create(calibration_page);lv_obj_set_pos(point_table,18,234);lv_obj_set_size(point_table,444,155);
-    lv_table_set_col_cnt(point_table,3);lv_table_set_col_width(point_table,0,106);lv_table_set_col_width(point_table,1,194);lv_table_set_col_width(point_table,2,130);
+    text(calibration_page,"引导式砝码校准",18,8,330,42,&pressure_font28);pm_back_button=button(calibration_page,"返回",358,8,104,UI_BACK);
+    text(calibration_page,"使用量程 g",18,64,155,33,&pressure_font20);
+    text(calibration_page,"允许误差 g",18,111,155,33,&pressure_font20);tolerance_input=input(calibration_page,"2.500",176,105,155);
+    capacity_input=input(calibration_page,"500",176,58,155);
+    text(calibration_page,"换算面积 mm²",18,158,155,33,&pressure_font18);area_input=input(calibration_page,"84.8",176,152,155);
+    wizard_step_label=text(calibration_page,"准备校准",18,205,444,60,&pressure_font20);
+    wizard_guide_label=text(calibration_page,"使用量程不得超过传感器额定载荷\n误差默认量程0.5%，可按要求修改",18,273,444,57,&pressure_font18);
+    point_table=lv_table_create(calibration_page);lv_obj_set_pos(point_table,18,334);lv_obj_set_size(point_table,444,139);
+    lv_table_set_col_cnt(point_table,4);lv_table_set_col_width(point_table,0,82);lv_table_set_col_width(point_table,1,110);lv_table_set_col_width(point_table,2,116);lv_table_set_col_width(point_table,3,116);
     lv_obj_set_style_text_font(point_table,&pressure_font18,0);lv_obj_set_style_text_font(point_table,&pressure_font18,LV_PART_ITEMS);
     lv_obj_set_style_bg_color(point_table,lv_color_hex(0x182B42),LV_PART_ITEMS);lv_obj_set_style_bg_color(point_table,lv_color_hex(0x182B42),0);
     lv_obj_set_style_text_color(point_table,lv_color_hex(0xE9F3FF),LV_PART_ITEMS);
     lv_obj_set_style_pad_ver(point_table,1,LV_PART_ITEMS);lv_obj_set_style_pad_hor(point_table,8,LV_PART_ITEMS);
-    lv_table_set_cell_value(point_table,0,0,"质量 g");lv_table_set_cell_value(point_table,0,1,"ADC均值");lv_table_set_cell_value(point_table,0,2,"标准差");
-    button(calibration_page,"删除末点",18,401,132,UI_REMOVE);button(calibration_page,"清空",162,401,100,UI_CLEAR);
-    pm_fit_button=button(calibration_page,"计算校准",274,401,188,UI_FIT);
-    pm_apply_button=button(calibration_page,"应用校准",18,459,210,UI_APPLY);
-    pm_save_button=button(calibration_page,"保存参数",242,459,220,UI_SAVE);
-    fit_label=text(calibration_page,"至少采集空载和一个砝码点",18,515,444,56,&pressure_font18);
-    config_label=text(calibration_page,"参数未读取",18,568,325,28,&pressure_font18);button(calibration_page,"读取",358,558,104,UI_READ);
+    lv_table_set_cell_value(point_table,0,0,"阶段%");lv_table_set_cell_value(point_table,0,1,"标准g");
+    lv_table_set_cell_value(point_table,0,2,"前差g");lv_table_set_cell_value(point_table,0,3,"后差g");
+    fit_label=text(calibration_page,"校准六点，复核三轮\n示值、重复性、迟滞、回零均需通过",18,482,444,56,&pressure_font18);
+    pm_next_button=button(calibration_page,"开始引导",18,543,210,UI_NEXT);
+    pm_retry_button=button(calibration_page,"重测",242,543,100,UI_RETRY);
+    pm_cancel_button=button(calibration_page,"结束",354,543,108,UI_CANCEL);
     message_label=text(root,"正在连接G0下位机",18,605,444,31,&pressure_font18);
     keyboard=lv_keyboard_create(lv_layer_top());lv_obj_set_size(keyboard,480,255);lv_obj_align(keyboard,LV_ALIGN_BOTTOM_MID,0,0);
     lv_keyboard_set_mode(keyboard,LV_KEYBOARD_MODE_NUMBER);lv_obj_set_style_text_font(keyboard,&lv_font_montserrat_18,LV_PART_ITEMS);
@@ -169,6 +183,7 @@ void PressureUi_Tick(void) {
     rendered=now;
     const PressureClientState *s=PressureClient_Status();char b[160];
     bool linked=s->connected && s->config_valid,free=linked && !s->pending,active=s->peak_state==PM_RUNNING;
+    const PcWizard *w=&s->wizard;bool wizard_active=PressureClient_WizardActive();
     const char *quality=!(s->flags&PM_VALID)?"传感器无有效数据":!(s->flags&PM_ZEROED)?"请先空载去皮":s->flags&PM_CALIBRATED?"已校准":"未校准，当前为估算值";
     snprintf(b,sizeof(b),"%s  %s",linked?"G0已连接":"G0未连接",linked?quality:"");lv_label_set_text(connection_label,b);
     const char *supply=!(s->flags&PM_POWER_VALID)?"供电未知":s->flags&PM_FULL?"已充满":s->flags&PM_CHARGING?"外部供电/充电":"电池供电";
@@ -198,15 +213,41 @@ void PressureUi_Tick(void) {
     }
     if(linked && s->peak_state==PM_COMPLETE && previous_state==PM_RUNNING) FixtureBuzzer_Success();
     previous_state=s->peak_state;
-    enable(pm_start_button,free && !active && (s->flags&PM_VALID) && (s->flags&PM_ZEROED));
-    enable(pm_stop_button,free && active);enable(pm_tare_button,free && !active && (s->flags&PM_VALID));
-    enable(pm_point_button,free && !active && (s->flags&PM_VALID) && s->point_count<PC_POINT_MAX);
-    enable(pm_apply_button,free && !active && s->fit_valid);enable(pm_save_button,free && !active && s->config.flags==3);
-    enable(pm_fit_button,!s->pending && s->point_count>=2);enable(time_input,!active && !s->pending);enable(area_input,!s->pending && !active);enable(mass_input,!s->pending);
+    enable(pm_start_button,free && !active && !wizard_active && (s->flags&PM_VALID) && (s->flags&PM_ZEROED));
+    enable(pm_stop_button,free && active);enable(pm_tare_button,free && !active && !wizard_active && (s->flags&PM_VALID));
+    enable(time_input,!active && !s->pending && !wizard_active);
+    enable(area_input,!s->pending && !active && !wizard_active);enable(capacity_input,!s->pending && !active && !wizard_active);
+    enable(tolerance_input,!s->pending && !active && !wizard_active);
+    enable(pm_next_button,free && !active && (s->flags&PM_VALID) && (w->phase!=PC_W_RESULT || w->passed));
+    enable(pm_retry_button,free && w->phase==PC_W_RESULT);enable(pm_cancel_button,!s->pending && w->phase!=PC_W_OFF);
     if(!area_initialized && s->config_valid) { snprintf(b,sizeof(b),"%.3f",(double)s->config.area);lv_textarea_set_text(area_input,b);area_initialized=true; }
-    if(s->fit_valid) snprintf(b,sizeof(b),"零点 %ld  g/count %.7f\n残差 RMS %.2f  最大 %.2f mmHg",(long)s->fit.zero,(double)s->fit.scale,(double)s->fit_rms,(double)s->fit_max);
-    else snprintf(b,sizeof(b),"已采集 %u/8 点\n先计算，再应用，复核后保存",(unsigned)s->point_count);
+    const char *next="开始引导",*guide="使用量程不得超过传感器额定载荷\n误差默认量程0.5%，可按要求修改";
+    if(w->phase==PC_W_PRELOAD) {
+        snprintf(b,sizeof(b),"步骤1  预加载\n在额定范围内加载卸载三次");next="预加载已完成";
+        guide="固定仪器，保证轴向受力\n装好加载盘，勿超过额定载荷";
+    } else if(w->phase==PC_W_LOAD || w->phase==PC_W_VERIFY) {
+        snprintf(b,sizeof(b),w->phase==PC_W_LOAD?"步骤2  标定 %u/6\n请放置 %.1f g  / %.3f N":"步骤4  复核第%u/3轮\n请放置 %.1f g  / %.3f N",
+            w->phase==PC_W_LOAD?(unsigned)w->step+1:(unsigned)w->repeat+1,(double)w->target,(double)(w->target*0.00980665f));
+        next=s->pending==PM_POINT?"采样中，请静置":"稳定后采集";
+        guide=w->target==0?"保留加载盘，移除全部砝码\n空载采样1秒，使用实时值":w->phase==PC_W_LOAD?"按提示逐级加载，静置后再采集\n每次采样1秒，不使用冲击峰值":w->step<=5?"复核：逐级加载，静置后采集\n每轮升到满量程，再逐级卸载":"复核：逐级卸载，静置后采集\n请勿去皮，保留真实回零误差";
+    } else if(w->phase==PC_W_FIT) {
+        snprintf(b,sizeof(b),"步骤3  六点计算完成\n允许误差 ±%.3f g",(double)w->tolerance);next="应用并复核";
+        guide="应用后仅改变RAM参数\n随后三轮加载卸载，合格才能保存";
+    } else if(w->phase==PC_W_RESULT || w->phase==PC_W_SAVED) {
+        snprintf(b,sizeof(b),"%s\n允许误差 ±%.3f g",w->phase==PC_W_SAVED?"复核通过，参数已保存":w->passed?"复核通过，等待保存":"复核未通过，禁止保存",(double)w->tolerance);
+        next=w->phase==PC_W_SAVED?"重新校准":"保存参数";
+        guide=w->phase==PC_W_SAVED?"断电保留；可滚动查看逐点误差\n日常去皮只修改零点":w->passed?"三轮示值、重复性、迟滞均通过\n点击保存后断电保留":"请检查偏载、摩擦、迟滞及稳定性\n可重测复核，或结束后重新校准";
+    } else if(w->phase==PC_W_INTERRUPTED) {
+        snprintf(b,sizeof(b),"校准已中断\n请读取状态并重新开始");next="重新校准";
+        guide="断线或参数变化后不能继续旧流程\n已应用的RAM参数不会自动撤销";
+    } else snprintf(b,sizeof(b),"准备校准  %s\n先确认量程及允许误差",s->config_valid?(s->config.dirty?"RAM未保存":"参数已保存"):"未连接");
+    lv_label_set_text(wizard_step_label,b);lv_label_set_text(wizard_guide_label,guide);
+    lv_label_set_text(lv_obj_get_child(pm_next_button,0),next);
+    if(w->phase>=PC_W_VERIFY && w->phase!=PC_W_INTERRUPTED)
+        snprintf(b,sizeof(b),"最大差 %.2fg  重复性 %.2fg\n迟滞 %.2fg  回零 %.2fg",(double)w->max_error,(double)w->repeatability,(double)w->hysteresis,(double)w->zero_error);
+    else if(w->phase==PC_W_FIT)
+        snprintf(b,sizeof(b),"六点线性拟合，未写入设备\n前差/后差均为测量值减标准值");
+    else snprintf(b,sizeof(b),"标定六点，独立复核三轮\n表格可滚动；面积仅用于mmHg换算");
     lv_label_set_text(fit_label,b);
-    snprintf(b,sizeof(b),"%s  %s",s->config_valid?(s->config.flags==3?"设备已校准":"设备未校准"):"未读取",s->config_valid?(s->config.dirty?"RAM未保存":"已保存"):"");lv_label_set_text(config_label,b);
     show_points();lv_label_set_text(message_label,ui_notice && now-notice_started<4000U?ui_notice:s->message);
 }

@@ -9,6 +9,19 @@ static uint32_t last_rx,last_hello,last_config,command_started;
 static bool identified,have_clock,got_point,got_config;
 static float requested_grams;
 static PcPoint result;
+static bool wizard_internal;
+static float check_min[PC_W_CHECK_POINTS],check_max[PC_W_CHECK_POINTS],cycle_up[PC_W_CAL_POINTS];
+static void wizard_point(void);
+static void wizard_interrupt(const char *message);
+static bool same_calibration(const PcCalibration *a,const PcCalibration *b) {
+    return a->zero==b->zero && a->flags==b->flags &&
+        fabsf(a->scale-b->scale)<=fabsf(b->scale)*1e-5f && fabsf(a->area-b->area)<=0.01f;
+}
+bool PressureClient_WizardActive(void) { return s.wizard.phase>=PC_W_PRELOAD && s.wizard.phase<=PC_W_RESULT; }
+static void wizard_interrupt(const char *message) {
+    if(PressureClient_WizardActive()) { s.wizard.phase=PC_W_INTERRUPTED;s.wizard.collecting=false;s.wizard.passed=false;s.wizard.revision++; }
+    s.message=message;
+}
 static uint16_t u16(const uint8_t *p) { return (uint16_t)p[0]|(uint16_t)((uint16_t)p[1]<<8); }
 static uint32_t u32(const uint8_t *p) { return (uint32_t)u16(p)|((uint32_t)u16(p+2)<<16); }
 static void put16(uint8_t *p,uint16_t x) { p[0]=(uint8_t)x;p[1]=(uint8_t)(x>>8); }
@@ -28,12 +41,14 @@ static bool transmit(uint8_t cmd,const uint8_t *p,uint8_t n) {
     pending_sequence=sequence;command_started=io->now();return true;
 }
 static void disconnect(const char *message) {
+    wizard_interrupt(message);
     s.connected=false;s.config_valid=false;identified=false;s.pending=0;
     s.filtered=s.pressure=NAN;s.flags=0;s.point_count=0;s.fit_valid=false;
     s.message=message;have_clock=false;
 }
 void PressureClient_Init(const PressureClientPort *port) {
     io=port;memset(&s,0,sizeof(s));used=0;sequence=(uint16_t)io->now();
+    wizard_internal=false;
     s.pressure=s.filtered=s.peak=s.minimum=s.sample_area=NAN;s.soc=255;s.message="正在连接G0下位机";
     identified=have_clock=false;last_rx=last_config=io->now();last_hello=io->now()-1000U;
 }
@@ -59,9 +74,13 @@ static void received(const uint8_t *f) {
         if(s.pending==PM_SET_CONFIG && seq==pending_sequence &&
            (config.zero!=s.fit.zero || fabsf(config.scale-s.fit.scale)>fabsf(s.fit.scale)*1e-5f ||
             fabsf(config.area-s.fit.area)>0.01f || config.flags!=3)) {
-            s.pending=0;s.message="参数回读不一致，请重新读取";return;
+            s.pending=0;wizard_interrupt("参数回读不一致，请重新读取");return;
         }
         s.config=config;s.config_valid=true;last_config=io->now();
+        if(PressureClient_WizardActive() && !same_calibration(&config,s.wizard.applied?&s.fit:&s.wizard.original) &&
+           !(s.pending==PM_SET_CONFIG && seq==pending_sequence)) {
+            wizard_interrupt("设备参数被修改，请重新开始校准");s.pending=0;return;
+        }
         if(seq==pending_sequence) {
             got_config=true;
             if(s.pending==PM_GET_CONFIG) { s.pending=0;s.message="设备参数已读取"; }
@@ -83,6 +102,7 @@ static void received(const uint8_t *f) {
         s.sample_area=n==56?getf(p+52):NAN;
         if(!isfinite(s.sample_area) || s.sample_area<1 || s.sample_area>100000) s.sample_area=NAN;
         s.peak_state=p[38];s.soc=p[39];s.mv=u16(p+40);s.errors=u32(p+42);s.peak_at=u32(p+48);s.updates++;
+        if(PressureClient_WizardActive() && s.peak_state==PM_RUNNING) wizard_interrupt("另一端开始峰值捕捉，校准已中断");
         if(old_state==PM_RUNNING && s.peak_state==PM_COMPLETE && !s.pending)
             s.message=s.errors?"捕捉完成，存在异常采样":"捕捉完成，结果已锁存";
         if(!(s.flags&PM_VALID)) s.pressure=s.filtered=NAN;
@@ -97,12 +117,22 @@ static void received(const uint8_t *f) {
         uint8_t pending=s.pending;s.pending=0;
         static const char *errors[]={"操作完成","命令格式错误","设备忙，请先结束采集","传感器异常或采样缺失",
             "受力不稳定，请静置重试","保存失败，旧记录仍保留","请先空载去皮或校准","参数超出范围"};
-        if(p[1]) { s.message=p[1]<8?errors[p[1]]:"设备返回未知错误";return; }
+        if(p[1]) { s.wizard.collecting=false;s.message=p[1]<8?errors[p[1]]:"设备返回未知错误";return; }
         if(pending==PM_POINT) {
-            if(!got_point || s.point_count>=PC_POINT_MAX) { s.message="缺少采样结果，请重试";return; }
+            if(!got_point) { s.wizard.collecting=false;s.message="缺少采样结果，请重试";return; }
+            if(s.wizard.collecting) { wizard_point();return; }
+            if(s.point_count>=PC_POINT_MAX) { s.message="校准点已满";return; }
             s.points[s.point_count++]=result;s.fit_valid=false;s.message="已采集，请更换下一组砝码";
         } else if(pending==PM_SET_CONFIG || pending==PM_SAVE || pending==PM_TARE) {
-            if(!got_config) { s.message="缺少回读，结果未知，请读取";return; }
+            if(!got_config) { wizard_interrupt("缺少回读，结果未知，请重新读取");return; }
+            if(PressureClient_WizardActive() && pending==PM_SET_CONFIG) {
+                s.wizard.applied=true;s.wizard.phase=PC_W_VERIFY;s.wizard.step=s.wizard.repeat=s.wizard.checks=0;
+                s.wizard.target=0;s.wizard.revision++;s.message="已应用RAM，请开始三轮加载卸载复核";return;
+            }
+            if(PressureClient_WizardActive() && pending==PM_SAVE) {
+                if(s.config.dirty || !same_calibration(&s.config,&s.fit)) { wizard_interrupt("保存回读不一致，请检查设备参数");return; }
+                s.wizard.phase=PC_W_SAVED;s.wizard.revision++;s.message="复核通过，保存成功，断电保留";return;
+            }
             s.message=pending==PM_SAVE?"保存成功，断电保留":pending==PM_TARE?"去皮完成，复核后可保存":"已应用，请用独立砝码复核";
         } else s.message=pending==PM_START?"峰值捕捉中，以G0计时为准":"已结束，保留本次结果";
     }
@@ -128,13 +158,14 @@ void PressureClient_Tick(void) {
         s.soc=255;s.mv=0;
     }
     if(identified && now-last_rx>=4000U) disconnect("通讯超时，请检查两板连接");
-    if(s.pending && now-command_started>=4000U) { s.pending=0;s.message="命令超时，结果未知，请读取"; }
+    if(s.pending && now-command_started>=4000U) { s.pending=0;wizard_interrupt("命令超时，结果未知，请重新读取"); }
     if(!identified && now-last_hello>=1000U) { last_hello=now;(void)transmit(PM_HELLO,NULL,0); }
     else if(s.connected && !s.pending && now-last_config>=2000U) {
         if(transmit(PM_GET_CONFIG,NULL,0)) { s.pending=PM_GET_CONFIG;got_config=false; }
     }
 }
 static bool ready(uint8_t cmd) {
+    if(PressureClient_WizardActive() && !wizard_internal && cmd!=PM_GET_CONFIG) { s.message="请先完成或退出引导校准";return false; }
     if(!s.connected || !s.config_valid) { s.message="下位机未连接或参数未读取";return false; }
     if(s.pending) { s.message="请等待当前操作完成";return false; }
     if(s.peak_state==PM_RUNNING && cmd!=PM_STOP && cmd!=PM_GET_CONFIG) { s.message="请先结束峰值捕捉";return false; }
@@ -157,13 +188,14 @@ bool PressureClient_Command(uint8_t cmd,uint32_t duration) {
 }
 bool PressureClient_Point(float grams) {
     if(!ready(PM_POINT)) return false;
-    if(!isfinite(grams) || grams<0 || grams>100000 || s.point_count>=PC_POINT_MAX) { s.message="重量无效或校准点已满";return false; }
+    if(!isfinite(grams) || grams<0 || grams>100000 || (!wizard_internal && s.point_count>=PC_POINT_MAX)) { s.message="重量无效或校准点已满";return false; }
     if(!transmit(PM_POINT,NULL,0)) return false;
     requested_grams=grams;s.pending=PM_POINT;got_point=got_config=false;s.message="采样1秒，请保持静止";return true;
 }
-void PressureClient_RemovePoint(bool all) { if(s.pending) return;if(all) s.point_count=0;else if(s.point_count) s.point_count--;s.fit_valid=false; }
-void PressureClient_InvalidateFit(void) { s.fit_valid=false; }
+void PressureClient_RemovePoint(bool all) { if(s.pending || PressureClient_WizardActive()) return;if(all) s.point_count=0;else if(s.point_count) s.point_count--;s.fit_valid=false; }
+void PressureClient_InvalidateFit(void) { if(!PressureClient_WizardActive()) s.fit_valid=false; }
 bool PressureClient_Fit(float area) {
+    if(PressureClient_WizardActive() && !wizard_internal) { s.message="请按引导完成校准";return false; }
     s.fit_valid=false;
     if(s.pending || !isfinite(area) || area<1 || area>100000 || s.point_count<2) { s.message="至少空载与一个砝码点，面积需有效";return false; }
     double xm=0,ym=0,xx=0,xy=0;bool zero=false;
@@ -184,6 +216,97 @@ bool PressureClient_Fit(float area) {
         squared+=(double)error*error;maximum=fmaxf(maximum,fabsf(error));
     }
     s.fit_rms=(float)sqrt(squared/s.point_count);s.fit_max=maximum;
-    if(maximum>fmaxf(2,PressureClient_Mmhg(ymax-ymin,area)*0.005f)) { s.message="校准残差过大，请检查偏载或录入";return false; }
+    /* The guided force calibration uses the user's tolerance in grams below;
+     * its acceptance must be independent of pressure conversion area. */
+    if(!wizard_internal && maximum>fmaxf(2,PressureClient_Mmhg(ymax-ymin,area)*0.005f)) { s.message="校准残差过大，请检查偏载或录入";return false; }
     s.fit_valid=true;s.message=s.point_count==2?"两点已拟合，建议增加校准点":"计算完成，请应用并独立复核";return true;
+}
+
+static float wizard_target(unsigned step) { return s.wizard.capacity*(float)(step<=5?step:10-step)/5.0f; }
+static float measured(const PcCalibration *c,float raw) { return c->flags&2?(raw-(float)c->zero)*c->scale:NAN; }
+static void reset_checks(void) {
+    PcWizard *w=&s.wizard;w->step=w->repeat=w->checks=0;w->target=0;w->passed=false;
+    w->max_error=w->repeatability=w->hysteresis=w->zero_error=0;
+    memset(w->verification,0,sizeof(w->verification));w->revision++;
+}
+bool PressureClient_WizardStart(float capacity,float area,float tolerance) {
+    if(PressureClient_WizardActive()) { s.message="请先结束当前校准";return false; }
+    if(!ready(PM_POINT)) return false;
+    if(!isfinite(capacity) || capacity<5 || capacity>100000 || !isfinite(area) || area<1 || area>100000 ||
+       !isfinite(tolerance) || tolerance<0.001f || tolerance>capacity*0.1f) {
+        s.message="量程需5至100000g，误差不超过量程10%";return false;
+    }
+    uint32_t revision=s.wizard.revision+1;
+    memset(&s.wizard,0,sizeof(s.wizard));s.wizard.phase=PC_W_PRELOAD;s.wizard.revision=revision;
+    s.wizard.capacity=capacity;s.wizard.area=area;s.wizard.tolerance=tolerance;s.wizard.original=s.config;
+    s.point_count=0;s.fit_valid=false;s.message="确认额定载荷后，预加载卸载三次";return true;
+}
+bool PressureClient_WizardNext(void) {
+    PcWizard *w=&s.wizard;
+    if(!PressureClient_WizardActive()) { s.message="请先开始引导校准";return false; }
+    if(s.pending) { s.message="采样中，请保持静止";return false; }
+    if(w->phase==PC_W_PRELOAD) { w->phase=PC_W_LOAD;w->target=0;w->revision++;s.message="保留加载盘，移除砝码，采集空载";return true; }
+    wizard_internal=true;bool ok=false;
+    if(w->phase==PC_W_LOAD || w->phase==PC_W_VERIFY) {
+        ok=PressureClient_Point(w->target);w->collecting=ok;
+    } else if(w->phase==PC_W_FIT) ok=PressureClient_Command(PM_SET_CONFIG,0);
+    else if(w->phase==PC_W_RESULT) {
+        if(w->passed) ok=PressureClient_Command(PM_SAVE,0);
+        else s.message="复核未通过，请重测或重新校准";
+    }
+    wizard_internal=false;return ok;
+}
+bool PressureClient_WizardRetry(void) {
+    PcWizard *w=&s.wizard;
+    if(s.pending || w->phase!=PC_W_RESULT || !w->applied || !same_calibration(&s.config,&s.fit)) return false;
+    reset_checks();w->phase=PC_W_VERIFY;s.message="请从空载开始，重新进行三轮复核";return true;
+}
+bool PressureClient_WizardCancel(void) {
+    if(s.pending) { s.message="请等待采样结束再退出";return false; }
+    bool applied=s.wizard.applied,saved=s.wizard.phase==PC_W_SAVED;
+    uint32_t revision=s.wizard.revision+1;
+    memset(&s.wizard,0,sizeof(s.wizard));s.wizard.revision=revision;
+    s.point_count=0;s.fit_valid=false;
+    s.message=saved?"已结束，已保存参数保留":applied?"已退出，RAM参数仍有效，未自动保存":"已退出，原设备参数保留";return true;
+}
+static void wizard_point(void) {
+    PcWizard *w=&s.wizard;w->collecting=false;
+    if(w->phase==PC_W_LOAD) {
+        if(s.point_count>=PC_W_CAL_POINTS || w->step!=s.point_count) { wizard_interrupt("校准次序异常，请重新开始");return; }
+        s.points[s.point_count++]=result;
+        w->calibration[w->step]=(PcCheck){w->target,measured(&w->original,result.raw)-w->target,NAN,0};
+        w->step++;w->revision++;
+        if(w->step<PC_W_CAL_POINTS) { w->target=wizard_target(w->step);s.message="已采集，请按提示更换砝码";return; }
+        wizard_internal=true;bool ok=PressureClient_Fit(w->area);wizard_internal=false;
+        if(!ok) { w->phase=PC_W_INTERRUPTED;return; }
+        float maximum=0;
+        for(unsigned i=0;i<PC_W_CAL_POINTS;i++) {
+            float error=measured(&s.fit,s.points[i].raw)-s.points[i].grams;
+            w->calibration[i].after=error;maximum=fmaxf(maximum,fabsf(error));
+        }
+        if(maximum>w->tolerance) { s.fit_valid=false;wizard_interrupt("拟合误差超出设定值，请检查加载");return; }
+        w->phase=PC_W_FIT;s.message="六点计算完成，应用后独立复核";return;
+    }
+    if(w->phase!=PC_W_VERIFY || !w->applied) return;
+    unsigned i=w->step;float value=measured(&s.fit,result.raw),error=value-w->target;
+    PcCheck *c=&w->verification[i];
+    if(!w->repeat) { *c=(PcCheck){w->target,0,0,0};check_min[i]=check_max[i]=value; }
+    check_min[i]=fminf(check_min[i],value);check_max[i]=fmaxf(check_max[i],value);
+    c->before+=(measured(&w->original,result.raw)-w->target-c->before)/(float)(w->repeat+1);
+    c->after+=(error-c->after)/(float)(w->repeat+1);c->spread=check_max[i]-check_min[i];
+    w->max_error=fmaxf(w->max_error,fabsf(error));w->repeatability=fmaxf(w->repeatability,c->spread);
+    if(i<=5) cycle_up[i]=value;
+    else w->hysteresis=fmaxf(w->hysteresis,fabsf(value-cycle_up[10-i]));
+    if(i==10) w->zero_error=fmaxf(w->zero_error,fabsf(value));
+    if(w->checks<i+1) w->checks=(uint8_t)(i+1);
+    w->step++;w->revision++;
+    if(w->step==PC_W_CHECK_POINTS) {
+        w->step=0;w->repeat++;
+        if(w->repeat==PC_W_REPEATS) {
+            w->phase=PC_W_RESULT;
+            w->passed=w->max_error<=w->tolerance && w->repeatability<=w->tolerance && w->hysteresis<=w->tolerance && w->zero_error<=w->tolerance;
+            s.message=w->passed?"三轮复核通过，请保存参数":"复核未通过，请检查偏载摩擦或重测";return;
+        }
+    }
+    w->target=wizard_target(w->step);s.message="已记录，请按提示加载或卸载";
 }

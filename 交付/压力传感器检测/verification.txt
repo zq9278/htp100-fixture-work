@@ -4,8 +4,8 @@ Branch: 压力传感器检测
 
 PASS: Release firmware built with ARM GCC 14.3.1 / CMake / Ninja.
       G0 FLASH 58788 bytes; static RAM and reserved heap/stack 23384 bytes.
-      H7 new-panel FLASH 703932 bytes; old-panel FLASH 703956 bytes.
-      H7 DTCM RAM 22248 bytes; AXI DMA buffer 256 bytes; LVGL uses existing SDRAM.
+      H7 new-panel FLASH 859228 bytes; old-panel FLASH 859252 bytes.
+      H7 DTCM RAM 22712 bytes; AXI DMA buffer 256 bytes; LVGL uses existing SDRAM.
       Charger/gauge task stack is allocated from the existing FreeRTOS heap.
 PASS: Production ARM measurement engine tests; 119 wire frames decoded by PC parser.
       Pressure conversion, instantaneous-vs-filtered display, calibration reset,
@@ -18,10 +18,19 @@ PASS: Production UART DMA queue under ARM emulation with a fake HAL.
 PASS: Production H7 client and G0 core tested together on ARM.
       Discovery, four-point mass fit, apply/save/readback, peak, H7 reboot,
       reconnect, and independent H7/PC response routing, sequence caches and locks.
+      Guided 0/20/40/60/80/100% six-point calibration corrects a simulated
+      1.857% gain error; three independent ascending/descending verification
+      cycles, user-set gram tolerance, error/repeatability/hysteresis/zero metrics.
+      Hysteresis and repeatability failures block guided SAVE; retry clears
+      verification metrics; parameter changes or link loss interrupt the run.
+      Successful guided save survives a G0 reboot and preserves calibrated scale.
+      Identical gram residuals pass at area 1 and 100000 mm^2; excessive gram
+      residuals fail before RAM apply, independently of pressure conversion area.
 PASS: Actual new/old H7 LVGL ELF rendering linked to the real G0 simulator.
-      Touch buttons, tare, 4 mass points, compute/apply/save/readback,
-      numeric keyboard READY, persistent input validation, peak display,
-      stale pressure/power values and disconnection.
+      Touch buttons, tare, preload instructions, six calibration levels,
+      RAM apply/readback, three verification cycles, save and failed-save gating,
+      retry/cancel, numeric keyboard READY, persistent input validation,
+      live/peak three-unit display, stale pressure/power and disconnection.
 PASS: 11 pytest cases including real Qt PC GUI to production ARM C USART1 channel.
       Four-point mass calibration, RAM apply/readback, EEPROM save/reboot,
       5ms sampled peak between telemetry frames, stale display and reconnection.
@@ -34,6 +43,11 @@ PASS: ELF inspection excludes eye EEPROM/treatment/heater/motor runtime.
 
 Runtime dependencies packaged: Python 3.12.10, PyQt5 5.15.11, pyserial 3.5.
 Calibration reference: masses + effective area; default area 84.8 mm^2.
+Force fit and guided acceptance are independent of area; mmHg needs valid area.
+500 g is the editable example calibration span, not a sensor capacity claim.
+Default tolerance is 0.5% of selected span; it is not a certified accuracy rating.
+The guided workflow is implemented in H7; G0 wire/storage format is unchanged.
+PC retains direct free-point calibration for auxiliary debugging.
 H7 previews are under H7界面预览（仿真）; the PC preview is labeled simulated data.
 H7 USART1 PA9/PA10 <-> G0 USART2 PA3/PA2; PC <-> G0 USART1 PB6/PB7.
 Both links are independent 115200 8N1; the H7 stays powered during charging.

@@ -122,14 +122,25 @@ call('lv_init');call('lv_port_disp_init');call('PressureUi_Init')
 advance(250);snapshot('01-实时待校准')
 click('pm_tare_button');advance(1200);assert '0.0' in label_text('value_label')
 click('pm_cal_button')
-for grams in (0,100,300,500):
-    set_text('mass_input',str(grams));click('pm_point_button');advance(1200,grams)
-click('pm_fit_button');advance(100,500);snapshot('02-砝码多点校准')
-click('pm_apply_button');advance(200,0);click('pm_save_button');advance(200,0)
-assert '已保存' in label_text('config_label'),label_text('config_label')
+set_text('capacity_input','500');set_text('tolerance_input','0.500')
+click('pm_next_button');advance(100);assert '预加载' in label_text('wizard_step_label');snapshot('09-预加载引导')
+click('pm_next_button');advance(100);snapshot('10-分级砝码引导')
+for grams in (0,100,200,300,400,500):
+    click('pm_next_button');advance(1200,grams)
+assert '六点计算完成' in label_text('wizard_step_label'),label_text('wizard_step_label')
+snapshot('02-砝码多点校准')
+click('pm_next_button');advance(200,0)
+assert '复核第1/3轮' in label_text('wizard_step_label');snapshot('11-加载卸载复核')
+for cycle in range(3):
+    for grams in (0,100,200,300,400,500,400,300,200,100,0):
+        click('pm_next_button');advance(1200,grams)
+assert '复核通过' in label_text('wizard_step_label'),label_text('wizard_step_label')
+snapshot('12-三轮复核通过')
+click('pm_next_button');advance(200,0)
+assert '参数已保存' in label_text('wizard_step_label'),label_text('wizard_step_label')
 snapshot('03-校准参数已保存')
 # Touching the field brings up the actual numeric keyboard; READY hides it.
-call('lv_event_send',pointer('mass_input'),7,0);snapshot('04-数字键盘')
+call('lv_event_send',pointer('capacity_input'),7,0);snapshot('04-数字键盘')
 import re
 event_header=(root/'9C-U_HTP100_SCREEN_Picture -100/lvgl/src/core/lv_event.h').read_text(encoding='utf-8')
 event_names=re.findall(r'^\s*(LV_EVENT_\w+)(?:\s*=\s*\d+)?\s*,',event_header,re.M)
@@ -144,8 +155,21 @@ assert '433.7' in label_text('peak_label'),label_text('peak_label')
 assert '4.903' in label_text('peak_load_label') and '500.0' in label_text('peak_load_label')
 assert '3.432' in label_text('load_label') and '350.0' in label_text('load_label')
 snapshot('05-实时压力与峰值')
+# A separate failed run must visibly disable save; retry begins fresh checks.
+click('pm_cal_button');click('pm_next_button');advance(100,0);click('pm_next_button');advance(100,0)
+for grams in (0,100,200,300,400,500):
+    click('pm_next_button');advance(1200,grams)
+click('pm_next_button');advance(200,0)
+for cycle in range(3):
+    for i,grams in enumerate((0,100,200,300,400,500,400,300,200,100,0)):
+        click('pm_next_button');advance(1200,grams+(4 if i>5 else 0))
+assert '复核未通过' in label_text('wizard_step_label'),label_text('wizard_step_label')
+call('lv_obj_has_state',pointer('pm_next_button'),0x80);assert u.reg_read(UC_ARM_REG_R0),'Failed verification must disable save'
+snapshot('13-复核失败禁止保存')
+click('pm_retry_button');advance(100,0);assert '复核第1/3轮' in label_text('wizard_step_label')
+click('pm_cancel_button');advance(100,0);click('pm_back_button')
 now_ms+=1500;call('PressureUi_Tick');snapshot('06-数据过期')
 assert '--.-' in label_text('value_label')
 assert '---.---' in label_text('load_label'),'Stale data must clear N and g too'
 now_ms+=3000;call('PressureUi_Tick');snapshot('07-两板通讯断开')
-print(f'PASS: {variant} H7 production LVGL ELF + real G0 measurement core; touch, tare, 4 mass points, fit/apply/save, keyboard, peak and stale/link states rendered.')
+print(f'PASS: {variant} H7 production LVGL ELF + real G0: guided six-point fit, three verification cycles, save/readback, failed hysteresis disables save, retry/cancel, keyboard, live/peak units and stale/link states rendered.')

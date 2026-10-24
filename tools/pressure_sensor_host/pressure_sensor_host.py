@@ -209,7 +209,7 @@ class Window(W.QMainWindow):
         root.addWidget(self.tabs)
         calibration = W.QWidget()
         cl = W.QVBoxLayout(calibration)
-        note = W.QLabel("先采集 0 g 空载点，再依次放置已知砝码。每点静置后采集 1 秒；推荐 0 / 100 / 300 / 500 g。")
+        note = W.QLabel("此页为辅助自由采点。完整六点标定、三轮加载卸载复核请在 H7 屏幕的引导校准中完成。PC 采点建议覆盖 0 / 20 / 40 / 60 / 80 / 100% 使用量程，稳定后采样；请勿与 H7 同时修改参数。")
         note.setWordWrap(True)
         cl.addWidget(note)
         row = W.QHBoxLayout()
