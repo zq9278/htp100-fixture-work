@@ -30,7 +30,7 @@ set(APP_SOURCES
     App/Src/app_main.c App/Src/app_hooks.c App/Src/app_log.c
     App/Src/pressure_monitor.c
     Bsp/Src/fixture_board.c Bsp/Src/ads1220_driver.c Bsp/Src/storage_driver.c
-    Bsp/Src/screen_uart.c Bsp/Src/charger_driver.c Bsp/Src/bq27441_gauge.c
+    Bsp/Src/screen_uart.c Bsp/Src/pc_uart.c Bsp/Src/charger_driver.c Bsp/Src/bq27441_gauge.c
     Bsp/Src/ws2812_driver.c
 )
 

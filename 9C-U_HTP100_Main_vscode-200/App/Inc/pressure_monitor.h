@@ -11,6 +11,7 @@ typedef struct {
     bool (*send)(const uint8_t *, uint16_t);
     bool (*read_store)(uint8_t, uint8_t *, size_t);
     bool (*write_store)(uint8_t, const uint8_t *, size_t);
+    bool (*send_pc)(const uint8_t *, uint16_t); /* Optional independent USART1. */
 } PressureMonitorPort;
 
 enum { PM_HELLO=1, PM_GET_CONFIG=2, PM_TARE=3, PM_POINT=4,
@@ -33,6 +34,7 @@ enum { PM_IDLE=0, PM_RUNNING=1, PM_COMPLETE=2, PM_ABORTED=3 };
 
 void PressureMonitor_Init(const PressureMonitorPort *port);
 void PressureMonitor_Feed(const uint8_t *data, size_t length);
+void PressureMonitor_FeedPc(const uint8_t *data, size_t length);
 void PressureMonitor_Sample(bool valid, int32_t raw);
 void PressureMonitor_Power(bool valid, bool charging, bool full,
                            uint8_t soc, uint16_t millivolts);

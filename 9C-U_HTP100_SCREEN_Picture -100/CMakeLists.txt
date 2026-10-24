@@ -70,8 +70,9 @@ file(GLOB_RECURSE USER_UI_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/demos/slk/*.c
 )
 list(FILTER USER_UI_SOURCES EXCLUDE REGEX "/images_all\\.c$")
-# Fixture-only build; retain original files in the project for reference.
+# Pressure-screen build; retain original treatment/fixture UI for reference.
 list(FILTER USER_HARDWARE_SOURCES EXCLUDE REGEX "/(screen|ui-myself)\\.c$")
+list(FILTER USER_HARDWARE_SOURCES EXCLUDE REGEX "/fixture_(ui|font[0-9]+)\\.c$")
 set(USER_UI_SOURCES "")
 
 
@@ -91,6 +92,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/HardWare/Inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../9C-U_HTP100_Main_vscode-200/App/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/src
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/porting
@@ -106,6 +108,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     LV_CONF_INCLUDE_SIMPLE
     STM32H7
     SCREEN_PANEL_OLD=0
+    PRESSURE_SCREEN_BUILD=1
 )
 
 # Every default build produces BOTH hardware variants from the same UI/protocol.
@@ -119,7 +122,7 @@ add_executable(${OLD_SCREEN_TARGET} ${SCREEN_ALL_SOURCES})
 get_target_property(SCREEN_INCLUDE_DIRS ${CMAKE_PROJECT_NAME} INCLUDE_DIRECTORIES)
 target_include_directories(${OLD_SCREEN_TARGET} PRIVATE ${SCREEN_INCLUDE_DIRS})
 target_compile_definitions(${OLD_SCREEN_TARGET} PRIVATE
-    LV_CONF_INCLUDE_SIMPLE STM32H7 SCREEN_PANEL_OLD=1
+    LV_CONF_INCLUDE_SIMPLE STM32H7 SCREEN_PANEL_OLD=1 PRESSURE_SCREEN_BUILD=1
 )
 target_link_libraries(${OLD_SCREEN_TARGET} stm32cubemx STM32_Drivers ${TOOLCHAIN_LINK_LIBRARIES})
 # Each target must have its own map file when both link concurrently.
@@ -134,6 +137,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
+target_link_options(${OLD_SCREEN_TARGET} PRIVATE -u _printf_float)
 
 # Generate a raw binary image alongside the ELF after linking.
 if(CMAKE_OBJCOPY)

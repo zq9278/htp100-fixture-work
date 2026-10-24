@@ -331,9 +331,19 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 int fputc(int ch,FILE *f)//重定向printf
 {
+#ifdef PRESSURE_SCREEN_BUILD
+   (void)f;return ch; /* The H7-G0 binary link must not carry debug text. */
+#endif
    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
   return ch;
 }
+
+#ifdef PRESSURE_SCREEN_BUILD
+int _write(int file,char *data,int length)
+{
+  (void)file;(void)data;return length; /* No debug bytes on the H7-G0 link. */
+}
+#endif
 
 /* USER CODE END 1 */
 

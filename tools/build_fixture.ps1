@@ -1,5 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 $workspace = Split-Path $PSScriptRoot -Parent
+if ((Get-Content -Raw -LiteralPath (Join-Path $workspace '9C-U_HTP100_Main_vscode-200/CMakeLists.txt')) -match 'set\(CMAKE_PROJECT_NAME HTP100-Pressure-Monitor\)') {
+    throw 'This is the pressure-monitor branch. Run tools/build_pressure_monitor.ps1 to build G0 and H7.'
+}
 # The bundled ST CMake crashes when its working directory contains Chinese.
 # A junction provides an ASCII build path without copying the source tree.
 $driveRoot = [IO.Path]::GetPathRoot($workspace)

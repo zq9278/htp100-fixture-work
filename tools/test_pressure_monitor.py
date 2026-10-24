@@ -57,7 +57,7 @@ subprocess.run([shutil.which("arm-none-eabi-gcc"), "-mcpu=cortex-m0", "-mthumb",
                 "--specs=nosys.specs", "-DPRESSURE_MONITOR_BUILD=1", "-Wl,-Ttext=0x10000",
                 "-Wl,-Tdata=0x20000000", "-Wl,-e,main", "-I"+str(project / "tests/pressure_uart_stubs"),
                 "-I"+str(project / "Bsp/Inc"), str(project / "tests/test_pressure_uart.c"),
-                str(project / "Bsp/Src/screen_uart.c"), "-o", str(uart_elf)], check=True, capture_output=True)
+                str(project / "Bsp/Src/screen_uart.c"), str(project / "Bsp/Src/pc_uart.c"), "-o", str(uart_elf)], check=True, capture_output=True)
 uart = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
 uart.mem_map(0, 0x200000)
 uart.mem_map(0x20000000, 0x100000)
@@ -73,3 +73,27 @@ uart.emu_start(entry | 1, 0x8000, count=10000000)
 result = uart.reg_read(UC_ARM_REG_R0)
 assert result == 0, f"UART C assertion failed at line {result}"
 print("PASS: production UART DMA queue: buffer lifetime, ordered frames, circular wrap, atomic overflow rejection, timeout recovery.")
+
+# Production H7 controller linked directly to the production G0 core.
+screen = root / "9C-U_HTP100_SCREEN_Picture -100"
+two_elf = output / "pressure-two-boards.elf"
+subprocess.run([shutil.which("arm-none-eabi-gcc"), "-mcpu=cortex-m0", "-mthumb", "-O1", "-nostartfiles",
+                "--specs=nosys.specs", "-Wl,-Ttext=0x10000", "-Wl,-Tdata=0x20000000", "-Wl,-e,main",
+                "-I"+str(project / "App/Inc"), "-I"+str(screen / "HardWare/Inc"),
+                str(project / "tests/test_pressure_two_boards.c"), str(project / "App/Src/pressure_monitor.c"),
+                str(screen / "HardWare/Src/pressure_client.c"), "-lm", "-o", str(two_elf)], check=True, capture_output=True)
+two = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
+two.mem_map(0, 0x200000)
+two.mem_map(0x20000000, 0x100000)
+with two_elf.open("rb") as source:
+    elf = ELFFile(source)
+    for segment in elf.iter_segments():
+        if segment["p_type"] == "PT_LOAD":
+            two.mem_write(segment["p_vaddr"], segment.data())
+    entry = elf.get_section_by_name(".symtab").get_symbol_by_name("main")[0]["st_value"]
+two.reg_write(UC_ARM_REG_SP, 0x200F0000)
+two.reg_write(UC_ARM_REG_LR, 0x8001)
+two.emu_start(entry | 1, 0x8000, count=100000000)
+result = two.reg_read(UC_ARM_REG_R0)
+assert result == 0, f"Two-board C assertion failed at line {result}"
+print("PASS: real H7 client + G0 engine: discovery, four-point fit, apply/save/readback, peak, H7 reboot, reconnect, independent PC sequence/cache/response routing and busy locks.")

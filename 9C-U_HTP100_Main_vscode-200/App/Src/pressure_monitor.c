@@ -18,7 +18,7 @@ typedef struct {
 
 static const PressureMonitorPort *io;
 static Calibration cal;
-static uint8_t rx[PM_MAX_FRAME], used;
+static uint8_t rx_stream[2][PM_MAX_FRAME], rx_used[2], reply_channel, collect_channel;
 static uint8_t active_slot, peak_state, collect_command;
 static uint16_t tx_sequence, collect_sequence;
 static uint32_t generation, last_sample, last_report;
@@ -33,8 +33,9 @@ static bool collect_error;
 static uint16_t power_flags, battery_mv;
 static uint8_t battery_soc;
 /* A repeated transaction is acknowledged, never repeated (notably SAVE/START). */
-static uint8_t previous_request[PM_MAX_FRAME], previous_length, previous_status;
-static bool previous_complete;
+static uint8_t previous_request[2][PM_MAX_FRAME], previous_length[2], previous_status[2];
+static bool previous_complete[2];
+static uint8_t previous_point[2][20];
 
 static uint16_t u16(const uint8_t *p) { return (uint16_t)p[0] | (uint16_t)((uint16_t)p[1]<<8); }
 static uint32_t u32(const uint8_t *p) { return (uint32_t)u16(p) | ((uint32_t)u16(p+2)<<16); }
@@ -59,7 +60,8 @@ static void send(uint8_t command, uint16_t sequence, const uint8_t *p, uint8_t n
     f[0]=0x7B; f[1]=0xB7; f[2]=1; f[3]=command; put16(f+4,sequence); f[6]=n;
     if(n) memcpy(f+7,p,n);
     put16(f+7+n,PressureMonitor_Crc(f,7U+n)); f[9+n]=0x0A;
-    (void)io->send(f,(uint16_t)(10U+n));
+    if(command==PM_STATUS || reply_channel==0) (void)io->send(f,(uint16_t)(10U+n));
+    if(io->send_pc && (command==PM_STATUS || reply_channel==1)) (void)io->send_pc(f,(uint16_t)(10U+n));
 }
 
 static void ack(uint8_t command, uint16_t sequence, uint8_t status)
@@ -130,8 +132,10 @@ void PressureMonitor_Init(const PressureMonitorPort *port)
 {
     io=port;
     cal=(Calibration){0,-1000.0f/(8388607.0f*128.0f*0.000370f),84.8f,0};
-    used=0; active_slot=0; generation=0; dirty=false;
-    tx_sequence=0; collect_command=0; previous_length=0; previous_complete=false;
+    memset(rx_used,0,sizeof(rx_used)); reply_channel=collect_channel=0;
+    active_slot=0; generation=0; dirty=false;
+    tx_sequence=0; collect_command=0;
+    memset(previous_length,0,sizeof(previous_length)); memset(previous_complete,0,sizeof(previous_complete));
     sample_valid=adc_ready=filter_valid=saturated=false;
     last_sample=last_report=io->now();
     peak_started=peak_duration=0; latest_raw=0; power_flags=0; battery_soc=255; battery_mv=0;
@@ -152,32 +156,36 @@ static void point_result(uint16_t sequence)
     putf(p,(float)collect_mean);
     putf(p+4,collect_count>1?(float)sqrt(collect_m2/(double)(collect_count-1U)):0.0f);
     put32(p+8,(uint32_t)collect_min); put32(p+12,(uint32_t)collect_max);
-    put32(p+16,collect_count); send(PM_POINT_RESULT,sequence,p,sizeof(p));
+    put32(p+16,collect_count);memcpy(previous_point[reply_channel],p,sizeof(p));
+    send(PM_POINT_RESULT,sequence,p,sizeof(p));
 }
 
 static void request(const uint8_t *f, uint8_t length)
 {
     uint8_t command=f[3], n=f[6], status=PM_OK;
     uint16_t sequence=u16(f+4); const uint8_t *p=f+7;
+    uint8_t channel=reply_channel;
     if(command==PM_HELLO && n==0) {
+        if(!collect_command) previous_length[channel]=0; /* A new host session. */
         const uint8_t info[]={1,0,0x4A,0x01}; /* firmware 1.0, nominal 330 SPS */
         send(PM_INFO,sequence,info,sizeof(info)); config(sequence); return;
     }
     if(command==PM_GET_CONFIG && n==0) { config(sequence); return; }
-    if(previous_length==length && !memcmp(f,previous_request,length)) {
-        if(previous_complete) {
-            if(command==PM_POINT && previous_status==PM_OK) point_result(sequence);
-            ack(command,sequence,previous_status);
+    if(previous_length[channel]==length && !memcmp(f,previous_request[channel],length)) {
+        if(previous_complete[channel]) {
+            if(command==PM_POINT && previous_status[channel]==PM_OK)
+                send(PM_POINT_RESULT,sequence,previous_point[channel],20);
+            ack(command,sequence,previous_status[channel]);
         }
         return;
     }
     if(collect_command) { ack(command,sequence,PM_BUSY); return; }
-    memcpy(previous_request,f,length); previous_length=length; previous_complete=false;
+    memcpy(previous_request[channel],f,length); previous_length[channel]=length; previous_complete[channel]=false;
     if((command==PM_TARE || command==PM_POINT) && n==0) {
         if(peak_state==PM_RUNNING) status=PM_BUSY;
         else if(!sample_valid || io->now()-last_sample>PM_FRESH_MS) status=PM_SENSOR_ERROR;
         else {
-            collect_command=command; collect_sequence=sequence; collect_started=io->now();
+            collect_command=command; collect_sequence=sequence; collect_channel=channel; collect_started=io->now();
             collect_count=0; collect_mean=collect_m2=0; collect_error=false;
             collect_min=8388607; collect_max=-8388608;
             return; /* Exactly one final acknowledgement after the sample window. */
@@ -209,13 +217,15 @@ static void request(const uint8_t *f, uint8_t length)
             peak_state=PM_ABORTED;
         }
     } else status=PM_BAD_REQUEST;
-    previous_status=status; previous_complete=true; ack(command,sequence,status);
+    previous_status[channel]=status; previous_complete[channel]=true; ack(command,sequence,status);
 }
 
-void PressureMonitor_Feed(const uint8_t *p, size_t length)
+static void feed_channel(const uint8_t *p, size_t length, uint8_t channel)
 {
+    uint8_t *rx=rx_stream[channel], used=rx_used[channel];
+    reply_channel=channel;
     while(length--) {
-        if(used==sizeof(rx)) { memmove(rx,rx+1,--used); }
+        if(used==PM_MAX_FRAME) { memmove(rx,rx+1,--used); }
         rx[used++]=*p++;
         while(used>=2) {
             if(rx[0]!=0x7B || rx[1]!=0xB7) { memmove(rx,rx+1,--used); continue; }
@@ -229,7 +239,11 @@ void PressureMonitor_Feed(const uint8_t *p, size_t length)
             request(rx,total); used=(uint8_t)(used-total); memmove(rx,rx+total,used);
         }
     }
+    rx_used[channel]=used;
 }
+
+void PressureMonitor_Feed(const uint8_t *p,size_t n) { feed_channel(p,n,0); }
+void PressureMonitor_FeedPc(const uint8_t *p,size_t n) { feed_channel(p,n,1); }
 
 void PressureMonitor_Sample(bool valid, int32_t raw)
 {
@@ -283,6 +297,7 @@ void PressureMonitor_Tick(void)
         if(peak_elapsed>=peak_duration) { peak_elapsed=peak_duration; peak_state=PM_COMPLETE; }
     }
     if(collect_command && now-collect_started>=PM_COLLECT_MS) {
+        reply_channel=collect_channel;
         uint8_t status=PM_OK;
         if(collect_error || collect_count<30 || !sample_valid || now-last_sample>PM_FRESH_MS) status=PM_SENSOR_ERROR;
         /* Noise limit is in equivalent mmHg under the active/provisional scale.
@@ -292,7 +307,7 @@ void PressureMonitor_Tick(void)
         else if(collect_command==PM_TARE) {
             cal.zero=(int32_t)lround(collect_mean); cal.flags|=2; dirty=true; reset_filter(); config(collect_sequence);
         } else point_result(collect_sequence);
-        previous_status=status; previous_complete=true;
+        previous_status[collect_channel]=status; previous_complete[collect_channel]=true;
         ack(collect_command,collect_sequence,status); collect_command=0;
     }
     if(now-last_report>=PM_REPORT_MS) {

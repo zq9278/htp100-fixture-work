@@ -21,6 +21,10 @@ void AppLog_Init(void)
 
 void AppLog_WriteRaw(const char *data, size_t length)
 {
+#ifdef PRESSURE_MONITOR_BUILD
+    /* USART1 is a binary PC interface. Never mix printf/debug text with it. */
+    (void)data; (void)length; return;
+#endif
     if (data == NULL || length == 0U) {
         return;
     }

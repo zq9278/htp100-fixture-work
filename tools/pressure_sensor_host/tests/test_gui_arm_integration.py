@@ -21,7 +21,7 @@ from calibration import mass_to_mmhg
 
 
 class ArmSerial:
-    def __init__(self):
+    def __init__(self,pc_port=True):
         root = Path(__file__).resolve().parents[3]
         project = root / "9C-U_HTP100_Main_vscode-200"
         output = project / "build/pressure-tests"
@@ -42,6 +42,8 @@ class ArmSerial:
             self.symbols = {s.name:s["st_value"] for s in elf.get_section_by_name(".symtab").iter_symbols()}
         self.clock = 0
         self.call("Sim_Init")
+        self.pc_port=pc_port
+        self.call("Sim_PcPort",int(pc_port))
 
     def call(self, name, arg0=0, arg1=0):
         self.u.reg_write(UC_ARM_REG_SP, 0x200F0000)
@@ -73,7 +75,7 @@ class ArmSerial:
 
     def write(self, data):
         self.u.mem_write(self.symbols["sim_rx"], data)
-        self.call("Sim_Feed", len(data))
+        self.call("Sim_FeedPc" if self.pc_port else "Sim_Feed", len(data))
         return len(data)
 
     def close(self):
@@ -132,7 +134,7 @@ def test_gui_to_real_firmware(monkeypatch):
     window.connection.setText("ARM 仿真联调 · 非实测数据")
     window.show()
     app.processEvents()
-    preview = Path(__file__).resolve().parents[3] / "交付/压力传感器检测/上位机界面（仿真数据）.png"
+    preview = Path(__file__).resolve().parents[3] / "交付/压力传感器检测/PC辅助界面（仿真数据）.png"
     assert window.grab().save(str(preview))
     # A config query must invalidate a fit made with another area.
     window.area.setValue(100)

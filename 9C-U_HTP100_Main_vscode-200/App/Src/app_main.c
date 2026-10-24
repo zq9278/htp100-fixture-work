@@ -9,11 +9,12 @@
 #include "storage_driver.h"
 #include "charger_driver.h"
 #include "pressure_monitor.h"
+#include "pc_uart.h"
 #include "app_log.h"
 #include "ws2812_driver.h"
 
 static const PressureMonitorPort port={HAL_GetTick,Board_ScreenWrite,
-    StorageDriver_ReadBytes,StorageDriver_WriteBytes};
+    StorageDriver_ReadBytes,StorageDriver_WriteBytes,PcUart_Write};
 
 static struct {
     bool valid, charging, full;
@@ -61,8 +62,8 @@ void AppMain_Task(void *argument)
 {
     (void)argument;
     AppLog_Init(); outputs_off();
-    /* USART2 belongs to the PC in this firmware. Keep LCD TX unpowered. */
-    ScreenUart_SetPower(false); (void)ScreenUart_Init();
+    /* H7 display stays powered, including during charging. PC uses USART1. */
+    ScreenUart_SetPower(true); (void)ScreenUart_Init(); (void)PcUart_Init();
     StorageDriver_PreparePins(); /* Never call legacy Init: it may erase EEPROM. */
     PressureMonitor_Init(&port);
     /* I2C retries must never hold up the higher-priority pressure sampler. */
@@ -78,6 +79,8 @@ void AppMain_Task(void *argument)
         uint8_t data[128];
         size_t count=Board_ScreenRead(data,sizeof(data));
         if(count) PressureMonitor_Feed(data,count);
+        count=PcUart_Read(data,sizeof(data));
+        if(count) PressureMonitor_FeedPc(data,count);
         uint32_t now=HAL_GetTick();
         if(!ready && now-retry>=2000U) {
             retry=now; ready=Ads1220Driver_RetryInit();
@@ -95,6 +98,7 @@ void AppMain_Task(void *argument)
         update_power();
         PressureMonitor_Tick();
         ScreenUart_TxTick();
+        PcUart_Tick();
         if(Board_TakePowerLossEvent()) outputs_off();
         Ws2812Driver_SetFixtureColor(ready?0x000020U:0x003000U);
         Ws2812Driver_Tick();

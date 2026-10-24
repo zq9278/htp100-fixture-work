@@ -85,7 +85,7 @@ class PressureChart(W.QWidget):
 class Window(W.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("HTP100 压力传感器检测与砝码校准")
+        self.setWindowTitle("HTP100 PC压力调试与砝码校准 · G0 USART1")
         self.resize(1240, 900)
         self.serial = None
         self.decoder = P.Decoder()
@@ -132,7 +132,7 @@ class Window(W.QMainWindow):
         title = W.QLabel("压力传感器检测")
         title.setStyleSheet("font-size:21pt;font-weight:700;")
         root.addWidget(title)
-        subtitle = W.QLabel("实时 mmHg · 下位机定时峰值 · 砝码标定 · 充电状态")
+        subtitle = W.QLabel("PC辅助工具 · 接G0 USART1（PB6/PB7） · H7屏幕独立工作")
         subtitle.setStyleSheet("color:#64748b;")
         root.addWidget(subtitle)
         line = W.QHBoxLayout()
@@ -267,8 +267,8 @@ class Window(W.QMainWindow):
         rl.addWidget(export)
         self.tabs.addTab(results, "峰值记录")
         help_text = W.QTextBrowser()
-        help_text.setHtml("""<b>接线和使用</b><p>USB 转 3.3V TTL：RX 接主板 PA2（TX），TX 接 PA3（RX），GND 共地。
-        下位机占用原屏幕 USART2，本版关闭屏幕供电；不要将两个 TX 输出并联。</p>
+        help_text.setHtml("""<b>接线和使用</b><p>USB 转 3.3V TTL：RX 接G0 PB6（USART1_TX），TX 接G0 PB7（USART1_RX），GND共地。
+        H7屏幕是独立上位机，经G0 USART2与下位机通信；PC使用独立USART1，两个串口不能并联。</p>
         <b>砝码与面积</b><p>空载指保留加载盘／压头、无新增砝码，录入 0 g；其余输入新增砝码总质量。
         砝码应垂直、居中加载。面积填最终测量时的有效受力面积；84.8 mm² 沿用现有项目，需实测确认。
         压力 = 质量(g) × 9.80665 × 1000 ÷ 面积(mm²) ÷ 133.3224。
