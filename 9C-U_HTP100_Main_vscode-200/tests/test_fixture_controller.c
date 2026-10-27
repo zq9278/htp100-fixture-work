@@ -5,7 +5,7 @@
 static uint32_t clock_ms;
 static bool present,heater_ok,powered;
 static float temperature;
-static unsigned writes,heats,offs;
+static unsigned writes,heats,offs,marker_clears;
 static uint8_t prepare_result,last[FX_FRAME_SIZE];
 static uint8_t usable_result;
 static uint8_t led_state;
@@ -27,13 +27,14 @@ static uint8_t check_usable(void){
 }
 static void status_led(uint8_t state){led_state=state;}
 static void diagnostics(FxDiagnostics *out){if(out)*out=hardware_diag;else hardware_diag=(FxDiagnostics){0};}
-static const FixturePort port={now,off,probe,heater,prepare,send,check_usable,status_led,diagnostics};
+static uint8_t clear_marker(void){marker_clears++;return prepare_result;}
+static const FixturePort port={now,off,probe,heater,prepare,send,check_usable,status_led,diagnostics,clear_marker};
 static void frame(uint8_t type,uint16_t id,uint8_t mode){
     uint8_t f[FX_FRAME_SIZE];Fx_Frame(f,type,id,mode);Fx_Seal(f);Fixture_Feed(f,sizeof(f));
 }
 static void query(void){frame(FX_START,transaction,function);}
 static void reset(uint8_t mode){
-    present=true;heater_ok=true;temperature=43;writes=heats=offs=0;powered=false;prepare_result=FX_OK;usable_result=FX_OK;
+    present=true;heater_ok=true;temperature=43;writes=heats=offs=marker_clears=0;powered=false;prepare_result=FX_OK;usable_result=FX_OK;
     clock_ms=100;transaction++;function=mode;Fixture_Init(&port);
     frame(FX_START,transaction,function);Fixture_Tick();query();
 }
@@ -161,5 +162,16 @@ int main(void){
     CHECK(last[17]==0x50 && last[18]==3 && Fx_Get32(last+28)==4);
     present=false;step(150);step(300);step(300);
     CHECK(last[7]==FX_WAIT && last[16]==0 && Fx_Get32(last+32)==0);
+    reset(FX_CLEAR_MARKER);
+    CHECK(last[7]==FX_PASS && marker_clears==1 && writes==0 && heats==0 && led_state==FX_PASS);
+    for(unsigned i=0;i<10;i++)query();CHECK(marker_clears==1);
+    present=false;step(150);step(300);step(300);CHECK(last[7]==FX_WAIT);
+    present=true;step(150);CHECK(last[7]==FX_PASS && marker_clears==2 && writes==0 && heats==0);
+    reset(FX_CLEAR_MARKER);transaction++;prepare_result=FX_WRITE_ERROR;
+    frame(FX_START,transaction,function);Fixture_Tick();query();
+    CHECK(last[8]==FX_WRITE_ERROR && marker_clears==2 && writes==0 && heats==0 && led_state==FX_FAIL);
+    reset(FX_CLEAR_MARKER);transaction++;prepare_result=FX_VERIFY_ERROR;
+    frame(FX_START,transaction,function);Fixture_Tick();query();
+    CHECK(last[8]==FX_VERIFY_ERROR && marker_clears==2 && writes==0 && heats==0);
     return 0;
 }

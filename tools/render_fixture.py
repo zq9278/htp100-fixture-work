@@ -85,8 +85,8 @@ def crc(data):
         c^=b
         for _ in range(8):c=(c>>1)^(0xA001 if c&1 else 0)
     return c
-def feed(state,reason,temp,stable,*,flags=7,device=0x48,reg=0,hal=0,error=0,marker=0xFFFF,raw=0x2B00):
-    f=bytearray([0xE7,0x7E,2,0x81])+bytearray(struct.pack('<H',seq))+bytearray([3,state,reason,1])+bytearray(struct.pack('<hhH',temp,4300,stable))
+def feed(state,reason,temp,stable,*,flags=7,device=0x48,reg=0,hal=0,error=0,marker=0xFFFF,raw=0x2B00,mode=3):
+    f=bytearray([0xE7,0x7E,2,0x81])+bytearray(struct.pack('<H',seq))+bytearray([mode,state,reason,1])+bytearray(struct.pack('<hhH',temp,4300,stable))
     f+=bytes(30)
     f[16]=flags;f[17]=device;f[18]=reg;f[19]=hal
     struct.pack_into('<HHH',f,20,marker,0xFFFF,raw)
@@ -137,4 +137,17 @@ feed(5,0,4300,2000)
 assert u.mem_read(symbols['mode'],1)==b'\x03'
 feed(6,9,-32768,0)
 assert u.mem_read(symbols['mode'],1)==b'\x00'
+call('lv_obj_get_child',home,5);clear_button=u.reg_read(UC_ARM_REG_R0)
+call('lv_event_send',clear_button,7,0)
+assert u.mem_read(symbols['mode'],1)==b'\x04'
+seq=struct.unpack('<H',u.mem_read(symbols['seq'],2))[0]
+snapshot('清除使用标记等待')
+before_beep=buzzer_starts
+feed(5,0,-32768,0,mode=4,flags=1,device=0x50,reg=1);snapshot('清除使用标记成功')
+assert buzzer_starts==before_beep+1
+details=struct.unpack('<I',u.mem_read(symbols['details'],4))[0]
+call('lv_label_get_text',details)
+text=bytes(u.mem_read(u.reg_read(UC_ARM_REG_R0),220)).split(b'\0')[0].decode('utf-8')
+assert '使用标记已清除' in text and '0xFFFF' in text
 print('PASS: actual LVGL menu/results/reset, repeated PASS suppression, two-beep timing, next-item alert, cancel acknowledgement.')
+print('PASS: fourth marker-clear menu entry and successful FFFF readback view.')

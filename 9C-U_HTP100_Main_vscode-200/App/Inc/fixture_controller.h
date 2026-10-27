@@ -14,6 +14,7 @@ typedef struct {
     void (*status_led)(uint8_t state);
     /* NULL resets current-item diagnostics; otherwise returns the latest sample. */
     void (*diagnostics)(FxDiagnostics *out);
+    uint8_t (*clear_marker)(void);
 } FixturePort;
 void Fixture_Init(const FixturePort *port);
 void Fixture_Feed(const uint8_t *data,size_t size);

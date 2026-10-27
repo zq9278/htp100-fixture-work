@@ -16,7 +16,7 @@ static uint16_t seq;
 static uint8_t mode,state;
 static uint32_t last_rx,last_tx;
 static bool accepted,cancelling,link_failed;
-static const char *names[]={"耗材检测工装","眼盾初始化","制作演示耗材","眼盾出厂检测"};
+static const char *names[]={"耗材检测工装","眼盾初始化","制作演示耗材","眼盾出厂检测","清除使用标记"};
 static const char *errors[]={"", "未检测到耗材，请检查连接", "检测中耗材断开",
     "温度读取失败\n请检查传感器", "温度过高\n已停止加热", "加热超时\n未达到稳定条件",
     "耗材写入失败\n请检查连接", "耗材回读校验失败", "通讯中断\n已停止检测",
@@ -130,7 +130,8 @@ static void start(lv_event_t *e) {
     diagnostic_available(false);
     last_rx=HAL_GetTick();
     lv_label_set_text(title,names[mode]); lv_label_set_text(status,"正在连接主机...");
-    lv_label_set_text(details,mode==FX_INSPECT?"目标温度 42.5℃\n允许偏差 ±3℃\n连续稳定 2秒后合格":"请连接耗材，等待操作完成");
+    lv_label_set_text(details,mode==FX_INSPECT?"目标温度 42.5℃\n允许偏差 ±3℃\n连续稳定 2秒后合格":
+        mode==FX_CLEAR_MARKER?"仅清除 0x01-0x02\n写入 0xFFFF 并回读\n其他位置保持原值":"请连接耗材，等待操作完成");
     lv_label_set_text(back_label,"取消并返回");
     lv_obj_add_flag(home,LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(page,LV_OBJ_FLAG_HIDDEN);
     transmit(FX_START);
@@ -170,9 +171,10 @@ void FixtureUi_Init(void) {
     }
     label(home,names[0],48,48);
     label(home,"请选择需要执行的功能",110,42);
-    button(home,names[1],200,start,FX_INITIALIZE);
-    button(home,names[2],310,start,FX_DEMO);
-    button(home,names[3],420,start,FX_INSPECT);
+    button(home,names[1],180,start,FX_INITIALIZE);
+    button(home,names[2],280,start,FX_DEMO);
+    button(home,names[3],380,start,FX_INSPECT);
+    button(home,names[4],480,start,FX_CLEAR_MARKER);
     title=label(page,"",35,60); status=label(page,"",125,125);
     details=label(page,"",270,230);
     lv_obj_set_style_text_font(details,&fixture_font36,0);
@@ -229,7 +231,8 @@ void FixtureUi_Feed(const uint8_t *data,size_t size) {
         } else if(state==FX_PASS) {
             if(previous_state!=FX_PASS) FixtureBuzzer_Success();
             lv_label_set_text(status,mode==FX_INSPECT?"耗材正常": "成功");
-            lv_label_set_text(details,mode==FX_INITIALIZE?"耗材初始化完成\n请拔出耗材\n自动等待下一件":mode==FX_DEMO?"演示耗材制作完成\n请拔出耗材\n自动等待下一件":"温度连续稳定2秒\n已停止加热，请拔出耗材\n自动等待下一件");
+            lv_label_set_text(details,mode==FX_INITIALIZE?"耗材初始化完成\n请拔出耗材\n自动等待下一件":mode==FX_DEMO?"演示耗材制作完成\n请拔出耗材\n自动等待下一件":
+                mode==FX_CLEAR_MARKER?"使用标记已清除\n0x01-02 = 0xFFFF\n请拔出耗材\n自动等待下一件":"温度连续稳定2秒\n已停止加热，请拔出耗材\n自动等待下一件");
         } else {
             const char *states[]={"待机","等待插入耗材","正在写入并回读校验","正在加热","温度达标\n正在稳定计时"};
             lv_label_set_text(status,states[state]);

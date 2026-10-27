@@ -17,6 +17,7 @@ bool EyeDriver_MarkConsumed(void);
 void EyeDriver_Erase(void);
 bool EyeDriver_FixtureProbe(void);
 uint8_t EyeDriver_FixtureCheckUsable(void);
+uint8_t EyeDriver_FixtureClearMarker(void);
 void EyeDriver_FixtureDiagnostics(FxDiagnostics *out);
 uint8_t EyeDriver_FixturePrepare(bool demo);
 

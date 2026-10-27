@@ -471,6 +471,24 @@ uint8_t EyeDriver_FixtureCheckUsable(void)
     return marker==0xFFFFU?FX_OK:FX_USED_EYE;
 }
 
+uint8_t EyeDriver_FixtureClearMarker(void)
+{
+    uint8_t erased=0xFFU,verify;
+    uint16_t marker;
+    g_identity_valid=false;
+    eye_restart_debounce();
+    /* Dedicated user-selected action. Never erase the entire EEPROM or touch
+     * service/manufacturing data outside the original consumed field. */
+    for(uint16_t address=EYE_MARK_ADDRESS;address<EYE_MARK_ADDRESS+2U;++address) {
+        if(i2c2_mem_write(EYE_EEPROM_ADDRESS,address,&erased,1U,80U)!=HAL_OK)
+            return FX_WRITE_ERROR;
+        vTaskDelay(pdMS_TO_TICKS(6U));
+        if(i2c2_mem_read(EYE_EEPROM_ADDRESS,address,&verify,1U,80U)!=HAL_OK || verify!=erased)
+            return FX_VERIFY_ERROR;
+    }
+    return eye_read_u16(EYE_MARK_ADDRESS,&marker) && marker==0xFFFFU?FX_OK:FX_VERIFY_ERROR;
+}
+
 uint8_t EyeDriver_FixturePrepare(bool demo)
 {
     uint8_t value;

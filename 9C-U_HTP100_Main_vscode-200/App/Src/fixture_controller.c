@@ -35,7 +35,7 @@ static void finish(uint8_t why) {
     io->off(); reason=why; state=why==FX_OK?FX_PASS:FX_FAIL; in_band=false;
     over_temp_pending=false;
     removal_pending=false;
-    rearm_after_removal=mode>=FX_INITIALIZE && mode<=FX_INSPECT &&
+    rearm_after_removal=mode>=FX_INITIALIZE && mode<=FX_CLEAR_MARKER &&
         why!=FX_CANCELLED && why!=FX_LINK_LOST && why!=FX_POWER_LOST &&
         why!=FX_NO_EYE && why!=FX_BAD_COMMAND;
     last_probe=io->now();
@@ -82,7 +82,7 @@ void Fixture_Feed(const uint8_t *data,size_t size) {
             over_temp_pending=false;
             reset_diagnostics();
             started=last_link=io->now(); last_probe=started-100U; last_heat=started-150U;
-            if(mode<FX_INITIALIZE || mode>FX_INSPECT) finish(FX_BAD_COMMAND);
+            if(mode<FX_INITIALIZE || mode>FX_CLEAR_MARKER) finish(FX_BAD_COMMAND);
             else state=FX_WAIT;
             report();
         } else if(have_seq && incoming==seq && f[6]==mode) {
@@ -121,7 +121,10 @@ void Fixture_Tick(void) {
                         if(usable!=FX_OK) finish(usable);
                         else { state=FX_HEATING; started=io->now(); }
                     }
-                    else { state=FX_WRITE; report(); finish(io->prepare(mode==FX_DEMO)); }
+                    else {
+                        state=FX_WRITE; report();
+                        finish(mode==FX_CLEAR_MARKER?io->clear_marker():io->prepare(mode==FX_DEMO));
+                    }
                 }
             }
             if(state==FX_WAIT && !continuous_wait && io->now()-started>=FIXTURE_WAIT_MS) finish(FX_NO_EYE);

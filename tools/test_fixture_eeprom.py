@@ -80,5 +80,19 @@ assert call('EyeDriver_ReadTemperature',0x2000)==0
 diag=diagnostics();assert diag['device']==0x48 and diag['reg']==0 and diag['attempts']==2 and diag['lines']==3 and diag['error']==4
 assert diag['flags']&8 and not diag['flags']&4,'Failed temperature read must invalidate old raw data'
 assert not writes
+fail_device=None;fail_register=None
+eeprom[:]=bytes(range(256));eeprom[1:3]=b'\x00\x01';eeprom[3:5]=b'\x02\x02'
+before=bytes(eeprom);expected=bytearray(before);expected[1:3]=b'\xff\xff';writes.clear()
+assert call('EyeDriver_FixtureClearMarker')==0
+assert writes==[(1,b'\xff'),(2,b'\xff')] and eeprom==expected
+assert eeprom[:1]==before[:1] and eeprom[3:]==before[3:],'Only marker bytes may change'
+assert call('EyeDriver_FixtureCheckUsable')==0
+assert diagnostics()['marker']==0xFFFF
+writes.clear();fail_write=True;before=bytes(eeprom)
+assert call('EyeDriver_FixtureClearMarker')==6 and not writes and bytes(eeprom)==before
+fail_write=False;bad_verify=True;writes.clear()
+assert call('EyeDriver_FixtureClearMarker')==7 and writes==[(1,b'\xff')]
+bad_verify=False
 print('PASS: actual EEPROM driver: read-only probe, full FF initialization, demo only 03/04, write/verify errors, consumed flag never set.')
 print('PASS: diagnostic register/value/flags, EEPROM 03 failure, TMP112 raw 2B00, sensor 00 NACK and stale-data invalidation.')
+print('PASS: explicit marker-clear writes ONLY 01/02=FFFF, preserves service/all other data, readback check, write and verify faults.')
