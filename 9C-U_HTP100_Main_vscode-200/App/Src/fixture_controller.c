@@ -12,12 +12,26 @@ static bool over_temp_pending;
 static uint32_t over_temp_started;
 static float measured;
 static uint32_t started,last_link,last_heat,last_send,band_started,last_probe;
+static FxDiagnostics frozen_diag;
+static bool diagnostic_frozen;
+static uint32_t finished_elapsed;
+static uint16_t finished_over_ms,best_stable_ms;
+static void reset_diagnostics(void) {
+    diagnostic_frozen=false; best_stable_ms=finished_over_ms=0; finished_elapsed=0;
+    io->diagnostics(NULL);
+}
 static bool active(void) { return state>=FX_WAIT && state<=FX_STABLE; }
 static void update_status_led(void) {
     /* User cancellation/return is not a failed consumable. */
     io->status_led(state==FX_FAIL && reason==FX_CANCELLED?FX_IDLE:state);
 }
 static void finish(uint8_t why) {
+    if(state!=FX_PASS && state!=FX_FAIL) {
+        io->diagnostics(&frozen_diag); diagnostic_frozen=true;
+        finished_elapsed=io->now()-started;
+        uint32_t duration=over_temp_pending?io->now()-over_temp_started:0U;
+        finished_over_ms=(uint16_t)(duration>65535U?65535U:duration);
+    }
     io->off(); reason=why; state=why==FX_OK?FX_PASS:FX_FAIL; in_band=false;
     over_temp_pending=false;
     removal_pending=false;
@@ -35,6 +49,13 @@ static void report(void) {
     uint32_t stable=in_band?io->now()-band_started:0;
     if(stable>FIXTURE_STABLE_MS) stable=FIXTURE_STABLE_MS;
     if(state==FX_PASS && mode==FX_INSPECT) stable=FIXTURE_STABLE_MS;
+    FxDiagnostics current=frozen_diag;
+    if(!diagnostic_frozen) io->diagnostics(&current);
+    Fx_PutDiagnostics(f,&current);
+    Fx_Put32(f+32,diagnostic_frozen?finished_elapsed:io->now()-started);
+    uint32_t over=over_temp_pending?io->now()-over_temp_started:0U;
+    Fx_Put16(f+36,diagnostic_frozen?finished_over_ms:(uint16_t)(over>65535U?65535U:over));
+    Fx_Put16(f+38,best_stable_ms);
     Fx_Put16(f+14,(uint16_t)stable); Fx_Seal(f); (void)io->send(f,sizeof(f));
     last_send=io->now();
 }
@@ -44,6 +65,7 @@ void Fixture_Init(const FixturePort *port) {
     rearm_after_removal=removal_pending=continuous_wait=false;
     over_temp_pending=false;
     started=last_link=last_heat=last_send=last_probe=io->now(); io->off();
+    reset_diagnostics();
     update_status_led();
 }
 void Fixture_Feed(const uint8_t *data,size_t size) {
@@ -58,6 +80,7 @@ void Fixture_Feed(const uint8_t *data,size_t size) {
             measured=NAN; in_band=false; eye=false;
             rearm_after_removal=removal_pending=continuous_wait=false;
             over_temp_pending=false;
+            reset_diagnostics();
             started=last_link=io->now(); last_probe=started-100U; last_heat=started-150U;
             if(mode<FX_INITIALIZE || mode>FX_INSPECT) finish(FX_BAD_COMMAND);
             else state=FX_WAIT;
@@ -81,6 +104,7 @@ void Fixture_Tick(void) {
             else if(io->now()-removal_started>=FIXTURE_REMOVE_CONFIRM_MS) {
                 io->off(); state=FX_WAIT; reason=FX_OK; measured=NAN; in_band=false;
                 over_temp_pending=false;
+                reset_diagnostics();
                 rearm_after_removal=removal_pending=false; continuous_wait=true;
                 started=last_heat=io->now(); report();
             }
@@ -123,6 +147,9 @@ void Fixture_Tick(void) {
                     } else if(fabsf(measured-FIXTURE_TARGET_C)<=FIXTURE_TOLERANCE_C) {
                         if(!in_band) { in_band=true; band_started=now; }
                         state=FX_STABLE;
+                        uint32_t stable_ms=now-band_started;
+                        if(stable_ms>FIXTURE_STABLE_MS) stable_ms=FIXTURE_STABLE_MS;
+                        if(stable_ms>best_stable_ms) best_stable_ms=(uint16_t)stable_ms;
                         /* Do not announce PASS during the 5s overtemperature
                          * confirmation window, even inside the +/-3C band. */
                         if(now-band_started>=FIXTURE_STABLE_MS && !over_temp_pending) finish(FX_OK);

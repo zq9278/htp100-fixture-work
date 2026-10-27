@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #include "app_types.h"
+#include "fixture_wire.h"
 
 void EyeDriver_Init(void);
 void EyeDriver_DiagnosticsTick(void);
@@ -16,6 +17,7 @@ bool EyeDriver_MarkConsumed(void);
 void EyeDriver_Erase(void);
 bool EyeDriver_FixtureProbe(void);
 uint8_t EyeDriver_FixtureCheckUsable(void);
+void EyeDriver_FixtureDiagnostics(FxDiagnostics *out);
 uint8_t EyeDriver_FixturePrepare(bool demo);
 
 #endif

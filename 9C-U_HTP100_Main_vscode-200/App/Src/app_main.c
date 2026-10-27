@@ -20,7 +20,7 @@ static void fixture_status_led(uint8_t state) {
 static const FixturePort fixture_port={
     HAL_GetTick,TreatmentHw_SafeOutputsOff,EyeDriver_FixtureProbe,
     TreatmentHw_HeaterControl,EyeDriver_FixturePrepare,Board_ScreenWrite,
-    EyeDriver_FixtureCheckUsable,fixture_status_led
+    EyeDriver_FixtureCheckUsable,fixture_status_led,EyeDriver_FixtureDiagnostics
 };
 void AppMain_Task(void *argument) {
     (void)argument;

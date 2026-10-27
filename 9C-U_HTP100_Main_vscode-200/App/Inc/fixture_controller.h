@@ -12,6 +12,8 @@ typedef struct {
     /* Read-only consumption check, independent of the disabled write/fuse switch. */
     uint8_t (*check_usable)(void);
     void (*status_led)(uint8_t state);
+    /* NULL resets current-item diagnostics; otherwise returns the latest sample. */
+    void (*diagnostics)(FxDiagnostics *out);
 } FixturePort;
 void Fixture_Init(const FixturePort *port);
 void Fixture_Feed(const uint8_t *data,size_t size);

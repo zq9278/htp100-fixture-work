@@ -33,6 +33,44 @@ static HAL_StatusTypeDef g_temp_sample_status;
 static uint8_t g_temp_sample_bytes[2];
 static uint32_t g_diag_last_ms;
 static bool g_diag_started;
+static FxDiagnostics g_fixture_diag;
+
+void EyeDriver_FixtureDiagnostics(FxDiagnostics *out)
+{
+    if(out!=NULL) *out=g_fixture_diag;
+    else g_fixture_diag=(FxDiagnostics){0};
+}
+
+static void fixture_record_io(uint16_t device,uint16_t address,const uint8_t *data,
+                              uint16_t size,HAL_StatusTypeDef status,uint8_t attempt,
+                              uint8_t operation)
+{
+    g_fixture_diag.device=(uint8_t)(device>>1U);
+    g_fixture_diag.reg=(uint8_t)address;
+    g_fixture_diag.status=(uint8_t)status;
+    g_fixture_diag.attempts=attempt;
+    g_fixture_diag.operation=operation;
+    /* Capture BEFORE recovery or another transaction changes the HAL error. */
+    g_fixture_diag.error=status==HAL_OK?0U:HAL_I2C_GetError(&hi2c2);
+    g_fixture_diag.lines=(HAL_GPIO_ReadPin(EYE_SCL_GPIO_Port,EYE_SCL_Pin)==GPIO_PIN_SET?1U:0U)|
+                         (HAL_GPIO_ReadPin(EYE_SDA_GPIO_Port,EYE_SDA_Pin)==GPIO_PIN_SET?2U:0U);
+    if(status==HAL_OK) g_fixture_diag.flags&=(uint8_t)~FX_DIAG_IO_FAILED;
+    else g_fixture_diag.flags|=FX_DIAG_IO_FAILED;
+    if(operation!=1U || size!=2U) return;
+    uint8_t valid=0U;
+    uint16_t *value=NULL;
+    if(device==EYE_EEPROM_ADDRESS && address==EYE_MARK_ADDRESS) {
+        valid=FX_DIAG_MARK_VALID; value=&g_fixture_diag.marker;
+    } else if(device==EYE_EEPROM_ADDRESS && address==EYE_SERVICE_ADDRESS) {
+        valid=FX_DIAG_SERVICE_VALID; value=&g_fixture_diag.service;
+    } else if(device==TMP112_ADDRESS && address==0U) {
+        valid=FX_DIAG_TEMP_VALID; value=&g_fixture_diag.temperature_raw;
+    }
+    if(value!=NULL) {
+        if(status==HAL_OK) { *value=((uint16_t)data[0]<<8U)|data[1]; g_fixture_diag.flags|=valid; }
+        else g_fixture_diag.flags&=(uint8_t)~valid;
+    }
+}
 
 static bool i2c2_needs_recovery(HAL_StatusTypeDef status, uint32_t error)
 {
@@ -79,6 +117,7 @@ static HAL_StatusTypeDef i2c2_mem_read(uint16_t device, uint16_t address,
     for (uint8_t attempt = 0U; attempt < 2U; ++attempt) {
         status = HAL_I2C_Mem_Read(&hi2c2, device, address, I2C_MEMADD_SIZE_8BIT,
                                   data, size, timeout);
+        fixture_record_io(device,address,data,size,status,(uint8_t)(attempt+1U),1U);
         if (device == TMP112_ADDRESS) {
             uint32_t error = HAL_I2C_GetError(&hi2c2);
             if (status == HAL_OK && size == 2U) {
@@ -129,6 +168,7 @@ static HAL_StatusTypeDef i2c2_mem_write(uint16_t device, uint16_t address,
     for (uint8_t attempt = 0U; attempt < 2U; ++attempt) {
         status = HAL_I2C_Mem_Write(&hi2c2, device, address, I2C_MEMADD_SIZE_8BIT,
                                    data, size, timeout);
+        fixture_record_io(device,address,data,size,status,(uint8_t)(attempt+1U),2U);
         if (status == HAL_OK) {
             return HAL_OK;
         }
