@@ -9,6 +9,7 @@ static unsigned writes,heats,offs;
 static uint8_t prepare_result,last[FX_FRAME_SIZE];
 static uint8_t usable_result;
 static uint8_t led_state;
+static FxDiagnostics hardware_diag;
 static uint16_t transaction;
 static uint8_t function;
 static uint32_t now(void){return clock_ms;}
@@ -20,9 +21,13 @@ static bool heater(float target,float *value){
 }
 static uint8_t prepare(bool demo){writes++; return demo==(function==FX_DEMO)?prepare_result:FX_BAD_COMMAND;}
 static bool send(const uint8_t *p,uint16_t n){if(n==sizeof(last))memcpy(last,p,n);return true;}
-static uint8_t check_usable(void){return usable_result;}
+static uint8_t check_usable(void){
+    hardware_diag.marker=usable_result==FX_USED_EYE?1U:0xFFFFU;
+    hardware_diag.flags=FX_DIAG_MARK_VALID; return usable_result;
+}
 static void status_led(uint8_t state){led_state=state;}
-static const FixturePort port={now,off,probe,heater,prepare,send,check_usable,status_led};
+static void diagnostics(FxDiagnostics *out){if(out)*out=hardware_diag;else hardware_diag=(FxDiagnostics){0};}
+static const FixturePort port={now,off,probe,heater,prepare,send,check_usable,status_led,diagnostics};
 static void frame(uint8_t type,uint16_t id,uint8_t mode){
     uint8_t f[FX_FRAME_SIZE];Fx_Frame(f,type,id,mode);Fx_Seal(f);Fixture_Feed(f,sizeof(f));
 }
@@ -135,6 +140,8 @@ int main(void){
     frame(FX_START,transaction,function);Fixture_Tick();query();
     CHECK(last[7]==FX_FAIL && last[8]==FX_USED_EYE && heats==0 && writes==0 && !powered);
     CHECK(led_state==FX_FAIL);
+    CHECK(Fx_Get16(last+20)==1U && (last[16]&FX_DIAG_MARK_VALID));
+    hardware_diag.marker=0xBEEFU;step(150);CHECK(Fx_Get16(last+20)==1U); /* frozen failure */
     step(1000);CHECK(last[8]==FX_USED_EYE && heats==0);
     present=false;step(150);step(300);step(300);CHECK(last[7]==FX_WAIT);
     CHECK(led_state==FX_WAIT);
@@ -143,5 +150,16 @@ int main(void){
     usable_result=FX_USED_EYE;step(150);CHECK(last[8]==FX_USED_EYE && !powered && heats==1);
     reset(FX_INSPECT);usable_result=FX_EYE_READ_ERROR;step(150);
     CHECK(last[8]==FX_EYE_READ_ERROR && heats==0 && writes==0 && !powered);
+    /* The entire I2C failure snapshot survives later successful presence probes. */
+    reset(FX_INSPECT);present=false;
+    hardware_diag=(FxDiagnostics){.flags=FX_DIAG_IO_FAILED,.device=0x50,.reg=3,
+        .status=1,.attempts=2,.lines=3,.operation=1,.error=4};
+    step(150);CHECK(last[8]==FX_REMOVED && last[17]==0x50 && last[18]==3);
+    CHECK(Fx_Get32(last+28)==4 && last[19]==1 && last[26]==2);
+    CHECK(Fx_Get16(last+FX_FRAME_SIZE-2)==Fx_Crc(last,FX_FRAME_SIZE-2));
+    hardware_diag=(FxDiagnostics){0};present=true;step(150);
+    CHECK(last[17]==0x50 && last[18]==3 && Fx_Get32(last+28)==4);
+    present=false;step(150);step(300);step(300);
+    CHECK(last[7]==FX_WAIT && last[16]==0 && Fx_Get32(last+32)==0);
     return 0;
 }

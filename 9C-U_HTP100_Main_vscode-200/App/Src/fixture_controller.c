@@ -26,7 +26,7 @@ static void update_status_led(void) {
     io->status_led(state==FX_FAIL && reason==FX_CANCELLED?FX_IDLE:state);
 }
 static void finish(uint8_t why) {
-    if(state!=FX_PASS && state!=FX_FAIL) {
+    if(!diagnostic_frozen) {
         io->diagnostics(&frozen_diag); diagnostic_frozen=true;
         finished_elapsed=io->now()-started;
         uint32_t duration=over_temp_pending?io->now()-over_temp_started:0U;

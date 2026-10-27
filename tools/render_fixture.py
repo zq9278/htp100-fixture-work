@@ -85,9 +85,15 @@ def crc(data):
         c^=b
         for _ in range(8):c=(c>>1)^(0xA001 if c&1 else 0)
     return c
-def feed(state,reason,temp,stable):
-    f=bytearray([0xE7,0x7E,1,0x81])+bytearray(struct.pack('<H',seq))+bytearray([3,state,reason,1])+bytearray(struct.pack('<hhH',temp,4300,stable))
-    f+=struct.pack('<H',crc(f));u.mem_write(0x1000,bytes(f));call('FixtureUi_Feed',0x1000,18)
+def feed(state,reason,temp,stable,*,flags=7,device=0x48,reg=0,hal=0,error=0,marker=0xFFFF,raw=0x2B00):
+    f=bytearray([0xE7,0x7E,2,0x81])+bytearray(struct.pack('<H',seq))+bytearray([3,state,reason,1])+bytearray(struct.pack('<hhH',temp,4300,stable))
+    f+=bytes(30)
+    f[16]=flags;f[17]=device;f[18]=reg;f[19]=hal
+    struct.pack_into('<HHH',f,20,marker,0xFFFF,raw)
+    f[26]=2 if hal else 1;f[27]=3;struct.pack_into('<I',f,28,error)
+    struct.pack_into('<IHH',f,32,120000 if reason==5 else 5150,5000 if reason==4 else 0,stable)
+    f[40]=1
+    f+=struct.pack('<H',crc(f));u.mem_write(0x1000,bytes(f));call('FixtureUi_Feed',0x1000,len(f))
 feed(4,0,4300,1500);snapshot('稳定计时')
 feed(5,0,4300,2000);snapshot('检测合格')
 assert buzzer_starts==1
@@ -98,12 +104,30 @@ for now_ms in (149,150,269,270,419,420):call('FixtureUi_Tick')
 assert buzzer_starts==2 and buzzer_stops==stops+2,'Two short nonblocking beeps'
 feed(1,0,-32768,0);snapshot('拔出后等待下一件')
 feed(5,0,4300,2000);assert buzzer_starts==3,'Next item gets its own notification'
-feed(6,3,-32768,0);snapshot('检测失败')
-feed(6,13,-32768,0);snapshot('耗材已报废')
+feed(6,3,-32768,0,flags=11,hal=1,error=4);snapshot('检测失败')
+feed(6,13,-32768,0,flags=3,device=0x50,reg=1,marker=1);snapshot('耗材已报废')
 status=struct.unpack('<I',u.mem_read(symbols['status'],4))[0]
 call('lv_label_get_text',status)
 text=bytes(u.mem_read(u.reg_read(UC_ARM_REG_R0),80)).split(b'\0')[0].decode('utf-8')
 assert text=='耗材已报废'
+diagnostic_button=struct.unpack('<I',u.mem_read(symbols['diagnostic_button'],4))[0]
+call('lv_event_send',diagnostic_button,7,0);snapshot('报废件诊断详情')
+diagnostic_text=struct.unpack('<I',u.mem_read(symbols['diagnostic_text'],4))[0]
+call('lv_label_get_text',diagnostic_text)
+diagnostic=bytes(u.mem_read(u.reg_read(UC_ARM_REG_R0),1700)).split(b'\0')[0].decode('utf-8')
+assert '0x0001' in diagnostic and '0xFFFF' in diagnostic and '0x01-02' in diagnostic
+call('lv_obj_add_flag',struct.unpack('<I',u.mem_read(symbols['diagnostic_page'],4))[0],1) # LV_OBJ_FLAG_HIDDEN
+feed(6,3,-32768,0,flags=11,hal=1,error=4)
+call('lv_event_send',diagnostic_button,7,0);snapshot('传感器无应答诊断')
+call('lv_label_get_text',diagnostic_text)
+diagnostic=bytes(u.mem_read(u.reg_read(UC_ARM_REG_R0),1700)).split(b'\0')[0].decode('utf-8')
+assert '0x48' in diagnostic and '0x00' in diagnostic and '00000004' in diagnostic and 'NACK' in diagnostic
+assert '原始数据 本次无有效读值' in diagnostic
+assert diagnostic.endswith('检测全程不改写使用标记'),'Diagnostic report must not be truncated'
+call('lv_obj_add_flag',struct.unpack('<I',u.mem_read(symbols['diagnostic_page'],4))[0],1)
+feed(6,4,4410,0);snapshot('过温诊断概要')
+feed(6,5,3950,0);snapshot('加热超时诊断概要')
+feed(6,2,4300,0,flags=12,device=0x50,reg=3,hal=1,error=4);snapshot('EEPROM地址03读取失败')
 # Return from a terminal result must CANCEL and wait for its acknowledgement;
 # a buffered terminal status must not be mistaken for that acknowledgement.
 back_label=struct.unpack('<I',u.mem_read(symbols['back_label'],4))[0]

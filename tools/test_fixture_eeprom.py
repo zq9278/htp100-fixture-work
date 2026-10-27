@@ -14,12 +14,15 @@ with path.open('rb') as f:
         if seg['p_type']=='PT_LOAD':u.mem_write(seg['p_vaddr'],seg.data())
     syms={s.name:s['st_value'] for s in e.get_section_by_name('.symtab').iter_symbols()}
 eeprom=bytearray(range(256));writes=[];fail_write=False;fail_read=False;bad_verify=False
+fail_register=None
+fail_device=None
 
 def finish(value=0):u.reg_write(UC_ARM_REG_R0,value);u.reg_write(UC_ARM_REG_PC,u.reg_read(UC_ARM_REG_LR))
 def read(uc,a,n,d):
-    if fail_read:finish(1);return
     addr=uc.reg_read(UC_ARM_REG_R2);sp=uc.reg_read(UC_ARM_REG_SP)
-    buf,size=struct.unpack('<II',uc.mem_read(sp,8));data=bytes(eeprom[addr:addr+size])
+    device=uc.reg_read(UC_ARM_REG_R1)
+    if fail_read or (device==fail_device and addr==fail_register):finish(1);return
+    buf,size=struct.unpack('<II',uc.mem_read(sp,8));data=b'\x2b\x00' if device==0x90 else bytes(eeprom[addr:addr+size])
     if bad_verify and writes:data=bytes([data[0]^1])+data[1:]
     uc.mem_write(buf,data);finish()
 def write(uc,a,n,d):
@@ -56,4 +59,26 @@ assert call('EyeDriver_FixtureCheckUsable')==15 and bytes(eeprom)==before and no
 fail_read=False
 writes.clear();bad_verify=True;assert call('EyeDriver_FixturePrepare',1)==7
 bad_verify=False;fail_write=True;writes.clear();assert call('EyeDriver_FixturePrepare',1)==6
+fail_write=False
+def diagnostics():
+    call('EyeDriver_FixtureDiagnostics',0x1000)
+    values=struct.unpack('<7BxHHH2xI',u.mem_read(0x1000,20))
+    return dict(zip(['flags','device','reg','status','attempts','lines','operation','marker','service','temperature_raw','error'],values))
+call('EyeDriver_FixtureDiagnostics',0)
+assert diagnostics()['flags']==0
+eeprom[1:3]=b'\x00\x01';assert call('EyeDriver_FixtureCheckUsable')==13
+diag=diagnostics();assert diag['marker']==1 and diag['device']==0x50 and diag['reg']==1 and diag['flags']&1
+eeprom[1:3]=b'\xff\xff';fail_device=0xA0;fail_register=3
+assert call('EyeDriver_FixtureProbe')==0
+diag=diagnostics();assert diag['device']==0x50 and diag['reg']==3 and diag['status']==1 and diag['attempts']==2 and diag['error']==4 and diag['flags']&8 and not diag['flags']&2
+fail_device=None;fail_register=None
+assert call('EyeDriver_ReadTemperature',0x2000)==1
+assert struct.unpack('<f',u.mem_read(0x2000,4))[0]==43.0
+diag=diagnostics();assert diag['temperature_raw']==0x2B00 and diag['flags']&4
+fail_device=0x90;fail_register=0
+assert call('EyeDriver_ReadTemperature',0x2000)==0
+diag=diagnostics();assert diag['device']==0x48 and diag['reg']==0 and diag['attempts']==2 and diag['lines']==3 and diag['error']==4
+assert diag['flags']&8 and not diag['flags']&4,'Failed temperature read must invalidate old raw data'
+assert not writes
 print('PASS: actual EEPROM driver: read-only probe, full FF initialization, demo only 03/04, write/verify errors, consumed flag never set.')
+print('PASS: diagnostic register/value/flags, EEPROM 03 failure, TMP112 raw 2B00, sensor 00 NACK and stale-data invalidation.')
