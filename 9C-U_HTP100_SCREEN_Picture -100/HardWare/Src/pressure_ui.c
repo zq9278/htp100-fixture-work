@@ -8,13 +8,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 LV_FONT_DECLARE(pressure_font18);
+LV_FONT_DECLARE(pressure_font16);
 LV_FONT_DECLARE(pressure_font20);
 LV_FONT_DECLARE(pressure_font28);
 LV_FONT_DECLARE(pressure_font48);
 static lv_obj_t *live,*calibration_page,*keyboard,*connection_label,*power_label,*value_label,*raw_label;
 static lv_obj_t *peak_label,*peak_detail,*message_label,*chart,*area_input,*capacity_input,*tolerance_input,*point_table,*fit_label;
 static lv_obj_t *wizard_step_label,*wizard_guide_label,*pm_next_button,*pm_retry_button,*pm_cancel_button;
-static lv_obj_t *load_label,*peak_load_label;
+static lv_obj_t *load_label,*peak_load_label,*reference_table;
 static lv_obj_t *pm_clear_button,*pm_tare_button;
 static lv_obj_t *pm_cal_button,*pm_back_button;
 static lv_chart_series_t *series;
@@ -118,6 +119,33 @@ static lv_obj_t *panel(lv_obj_t *root) {
     lv_obj_clear_flag(o,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_style_pad_all(o,0,0);
     lv_obj_set_style_border_width(o,0,0);lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);return o;
 }
+static void create_reference_table(lv_obj_t *parent) {
+    /* Fixed transcription supplied by the user. It is not recomputed from the
+     * editable effective area and never changes calibration or peak capture. */
+    static const char *rows[][4]={
+        {"档位mmHg","-50 / N","中心 / N","+50 / N"},
+        {"150","1.14","1.70","2.27"},
+        {"250","2.27","2.83","3.41"},
+        {"350","3.41","3.96","4.53"},
+        {"450","4.53","5.09","5.66"},
+        {"550","5.66","6.22","6.79"}
+    };
+    text(parent,"档位及左右50 mmHg参考力值（600为推算）",18,334,444,24,&pressure_font16);
+    reference_table=lv_table_create(parent);lv_obj_set_pos(reference_table,18,358);
+    lv_obj_set_size(reference_table,444,124);
+    lv_obj_clear_flag(reference_table,LV_OBJ_FLAG_SCROLLABLE);
+    lv_table_set_col_cnt(reference_table,4);lv_table_set_row_cnt(reference_table,6);
+    for(unsigned col=0;col<4;++col)lv_table_set_col_width(reference_table,col,110);
+    lv_obj_set_style_pad_all(reference_table,0,0);lv_obj_set_style_border_width(reference_table,1,0);
+    lv_obj_set_style_text_font(reference_table,&pressure_font16,LV_PART_ITEMS);
+    lv_obj_set_style_pad_ver(reference_table,0,LV_PART_ITEMS);lv_obj_set_style_pad_hor(reference_table,6,LV_PART_ITEMS);
+    lv_obj_set_style_border_width(reference_table,0,LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(reference_table,lv_color_hex(0x182B42),0);
+    lv_obj_set_style_bg_color(reference_table,lv_color_hex(0x182B42),LV_PART_ITEMS);
+    lv_obj_set_style_text_color(reference_table,lv_color_hex(0xDAE9F9),LV_PART_ITEMS);
+    for(unsigned i=0;i<6;++i)for(unsigned col=0;col<4;++col)
+        lv_table_set_cell_value(reference_table,i,col,rows[i][col]);
+}
 void PressureUi_Init(void) {
     PressureClient_Init(&port);FixtureBuzzer_Stop();
     rendered=HAL_GetTick()-100;chart_update=0;area_initialized=false;displayed_revision=UINT32_MAX;ui_notice=NULL;
@@ -125,25 +153,30 @@ void PressureUi_Init(void) {
     lv_obj_set_style_bg_color(root,lv_color_hex(0x101C2D),0);lv_obj_set_style_text_color(root,lv_color_hex(0xE9F3FF),0);
     lv_obj_set_style_text_font(root,&pressure_font20,0);live=panel(root);calibration_page=panel(root);
     lv_obj_add_flag(calibration_page,LV_OBJ_FLAG_HIDDEN);
-    text(live,"压力传感器检测",18,8,440,42,&pressure_font28);
-    connection_label=text(live,"正在连接G0下位机",18,51,444,29,&pressure_font18);
-    power_label=text(live,"供电未知  电量未知",18,80,444,29,&pressure_font18);
-    value_label=text(live,"--.- mmHg",18,108,444,62,&pressure_font48);
+    text(live,"压力传感器检测",18,4,440,30,&pressure_font20);
+    connection_label=text(live,"正在连接G0下位机",18,35,444,22,&pressure_font16);
+    power_label=text(live,"供电未知  电量未知",18,57,444,22,&pressure_font16);
+    text(live,"实时压力 mmHg",18,82,210,26,&pressure_font18);
+    value_label=text(live,"--.-",18,108,210,58,&pressure_font48);
     lv_obj_set_style_text_color(value_label,lv_color_hex(0x68C8FF),0);
-    load_label=text(live,"力值 ---.--- N  等效 ---.- g",18,174,444,30,&pressure_font20);
+    load_label=text(live,"---.--- N\n---.- g",18,166,210,76,&pressure_font28);
     lv_obj_set_style_text_color(load_label,lv_color_hex(0x68C8FF),0);
-    raw_label=text(live,"瞬时 --.-  ADC --",18,207,444,28,&pressure_font18);
-    chart=lv_chart_create(live);lv_obj_set_pos(chart,18,241);lv_obj_set_size(chart,444,94);
+    raw_label=text(live,"瞬时 --.-  ADC --",18,0,264,26,&pressure_font16);
+    lv_obj_add_flag(raw_label,LV_OBJ_FLAG_HIDDEN);
+    chart=lv_chart_create(live);lv_obj_set_pos(chart,18,246);lv_obj_set_size(chart,444,86);
     lv_obj_set_style_bg_color(chart,lv_color_hex(0x182B42),0);lv_obj_set_style_line_color(chart,lv_color_hex(0x30455F),LV_PART_MAIN);
-    lv_obj_set_style_pad_all(chart,6,0);lv_obj_set_style_size(chart,0,LV_PART_INDICATOR);
+    lv_obj_set_style_pad_all(chart,1,0);lv_obj_set_style_size(chart,0,LV_PART_INDICATOR);
     lv_chart_set_type(chart,LV_CHART_TYPE_LINE);lv_chart_set_range(chart,LV_CHART_AXIS_PRIMARY_Y,-20,500);
     lv_chart_set_point_count(chart,200);series=lv_chart_add_series(chart,lv_color_hex(0x68C8FF),LV_CHART_AXIS_PRIMARY_Y);
-    peak_label=text(live,"峰值 --.- mmHg",18,344,444,40,&pressure_font28);
+    text(live,"峰值压力 mmHg",242,82,220,26,&pressure_font18);
+    peak_label=text(live,"--.-",242,108,220,58,&pressure_font48);
     lv_obj_set_style_text_color(peak_label,lv_color_hex(0x74E4C9),0);
-    peak_load_label=text(live,"峰值力 ---.--- N  ---.- g",18,387,444,28,&pressure_font18);
+    peak_load_label=text(live,"---.--- N\n---.- g",242,166,220,76,&pressure_font28);
     lv_obj_set_style_text_color(peak_load_label,lv_color_hex(0x74E4C9),0);
-    peak_detail=text(live,"建立零点后自动持续捕捉最大值",18,420,444,52,&pressure_font18);
-    pm_clear_button=button(live,"清除峰值，重新捕捉",18,480,444,UI_CLEAR);
+    create_reference_table(live);
+    peak_detail=text(live,"空载去皮后\n自动持续捕捉",0,0,168,90,&pressure_font16);
+    lv_obj_add_flag(peak_detail,LV_OBJ_FLAG_HIDDEN);
+    pm_clear_button=button(live,"清除峰值，重新捕捉",18,485,444,UI_CLEAR);
     pm_tare_button=button(live,"空载去皮",18,540,210,UI_TARE);
     pm_cal_button=button(live,"砝码校准",242,540,220,UI_CAL);
     text(calibration_page,"引导式砝码校准",18,8,330,42,&pressure_font28);pm_back_button=button(calibration_page,"返回",358,8,104,UI_BACK);
@@ -178,26 +211,27 @@ void PressureUi_Tick(void) {
     const PressureClientState *s=PressureClient_Status();char b[160];
     bool linked=s->connected && s->config_valid,free=linked && !s->pending;
     const PcWizard *w=&s->wizard;bool wizard_active=PressureClient_WizardActive();
-    const char *quality=!(s->flags&PM_VALID)?"传感器无有效数据":!(s->flags&PM_ZEROED)?"请先空载去皮":s->flags&PM_CALIBRATED?"已校准":"未校准，当前为估算值";
+    const char *quality=!(s->flags&PM_VALID)?"传感器无有效数据":!(s->flags&PM_ZEROED)?"请先空载去皮":
+        s->flags&PM_CALIBRATED?(s->config.dirty?"RAM校准未保存":"已校准·EEPROM已保存"):"未校准，当前为估算值";
     snprintf(b,sizeof(b),"%s  %s",linked?"G0已连接":"G0未连接",linked?quality:"");lv_label_set_text(connection_label,b);
     const char *supply=!(s->flags&PM_POWER_VALID)?"供电未知":s->flags&PM_FULL?"已充满":s->flags&PM_CHARGING?"外部供电/充电":"电池供电";
     if(s->soc<=100 && linked) snprintf(b,sizeof(b),"%s  %u%%  %umV",supply,(unsigned)s->soc,(unsigned)s->mv);
     else snprintf(b,sizeof(b),"%s  电量未知",linked?supply:"供电未知");
     lv_label_set_text(power_label,b);
-    if(linked && isfinite(s->filtered)) snprintf(b,sizeof(b),"%.1f mmHg",(double)s->filtered);else snprintf(b,sizeof(b),"--.- mmHg");lv_label_set_text(value_label,b);
+    if(linked && isfinite(s->filtered)) snprintf(b,sizeof(b),"%.1f",(double)s->filtered);else snprintf(b,sizeof(b),"--.-");lv_label_set_text(value_label,b);
     float force=PressureClient_Force(s->filtered,s->sample_area),grams=PressureClient_Grams(s->filtered,s->sample_area);
-    if(linked && isfinite(force)) snprintf(b,sizeof(b),"力值 %.3f N  等效 %.1f g",(double)force,(double)grams);
-    else snprintf(b,sizeof(b),"力值 ---.--- N  等效 ---.- g");
+    if(linked && isfinite(force)) snprintf(b,sizeof(b),"%.3f N\n%.1f g",(double)force,(double)grams);
+    else snprintf(b,sizeof(b),"---.--- N\n---.- g");
     lv_label_set_text(load_label,b);
     if(linked && isfinite(s->pressure)) snprintf(b,sizeof(b),"瞬时 %.1f  ADC %ld",(double)s->pressure,(long)s->raw);
     else snprintf(b,sizeof(b),"瞬时 --.-  ADC %s",linked && (s->flags&PM_VALID)?"有数据，待去皮":"--");
     lv_label_set_text(raw_label,b);
-    if(isfinite(s->peak)) snprintf(b,sizeof(b),"峰值 %.1f mmHg",(double)s->peak);else snprintf(b,sizeof(b),"峰值 --.- mmHg");lv_label_set_text(peak_label,b);
+    if(isfinite(s->peak)) snprintf(b,sizeof(b),"%.1f",(double)s->peak);else snprintf(b,sizeof(b),"--.-");lv_label_set_text(peak_label,b);
     force=PressureClient_Force(s->peak,s->sample_area);grams=PressureClient_Grams(s->peak,s->sample_area);
-    if(isfinite(force)) snprintf(b,sizeof(b),"峰值力 %.3f N  %.1f g",(double)force,(double)grams);
-    else snprintf(b,sizeof(b),"峰值力 ---.--- N  ---.- g");
+    if(isfinite(force)) snprintf(b,sizeof(b),"%.3f N\n%.1f g",(double)force,(double)grams);
+    else snprintf(b,sizeof(b),"---.--- N\n---.- g");
     lv_label_set_text(peak_load_label,b);
-    snprintf(b,sizeof(b),"%s  %lu样本\n峰值时刻 %.2f秒  异常 %lu",!linked?"通讯中断，G0继续捕捉":s->peak_state==PM_RUNNING?"持续捕捉，清除后重新累计":"等待空载去皮或校准",
+    snprintf(b,sizeof(b),"%s\n%lu样本\n峰时 %.2fs\n异常 %lu",!linked?"断线·G0仍捕捉":s->peak_state==PM_RUNNING?"持续捕捉":"等待去皮/校准",
         (unsigned long)s->samples,(double)s->peak_at/1000,(unsigned long)s->errors);lv_label_set_text(peak_detail,b);
     if(chart_update!=s->updates) {
         chart_update=s->updates;float p=s->pressure;
@@ -226,7 +260,7 @@ void PressureUi_Tick(void) {
     } else if(w->phase==PC_W_RESULT || w->phase==PC_W_SAVED) {
         snprintf(b,sizeof(b),"%s\n允许误差 ±%.3f g",w->phase==PC_W_SAVED?"复核通过，参数已保存":w->passed?"复核通过，等待保存":"复核未通过，禁止保存",(double)w->tolerance);
         next=w->phase==PC_W_SAVED?"重新校准":"保存参数";
-        guide=w->phase==PC_W_SAVED?"断电保留；可滚动查看逐点误差\n日常去皮只修改零点":w->passed?"三轮示值、重复性、迟滞均通过\n点击保存后断电保留":"请检查偏载、摩擦、迟滞及稳定性\n可重测复核，或结束后重新校准";
+        guide=w->phase==PC_W_SAVED?"已写入外部EEPROM双备份\n断电和重新刷写固件均保留":w->passed?"三轮复核通过，点击保存参数\n写入EEPROM后断电和刷写均保留":"请检查偏载、摩擦、迟滞及稳定性\n可重测复核，或结束后重新校准";
     } else if(w->phase==PC_W_INTERRUPTED) {
         snprintf(b,sizeof(b),"校准已中断\n请读取状态并重新开始");next="重新校准";
         guide="断线或参数变化后不能继续旧流程\n已应用的RAM参数不会自动撤销";

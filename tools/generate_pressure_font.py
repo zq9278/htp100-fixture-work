@@ -5,7 +5,7 @@ s=Path(__file__).resolve().parents[1]/'9C-U_HTP100_SCREEN_Picture -100'
 def put(p,t):p.write_text('\n'.join(line.rstrip() for line in t.splitlines()).rstrip()+'\n',encoding='utf-8')
 # Create a compact, complete Chinese font for every string in this UI.
 from PIL import Image, ImageDraw, ImageFont
-for font_size in (18,20,28,48):
+for font_size in (16,18,20,28,48):
     font=ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',font_size)
     ui=''.join((s/p).read_text(encoding='utf-8') for p in ['HardWare/Src/pressure_ui.c','HardWare/Src/pressure_client.c'])
     strings=re.findall(r'"([^"\n]*)"',ui)
@@ -37,5 +37,6 @@ for font_size in (18,20,28,48):
     .get_glyph_bitmap=lv_font_get_bitmap_fmt_txt,.line_height=38,.base_line=8,.dsc=&desc,.fallback=&lv_font_montserrat_18};
     '''
     font_c=font_c.replace('pressure_font28',f'pressure_font{font_size}').replace('28px',f'{font_size}px').replace('.line_height=38,.base_line=8',f'.line_height={font_size+10},.base_line={round(font_size*0.28)}')
+    if font_size==16:font_c=font_c.replace('.line_height=26','.line_height=20')
     put(s/f'HardWare/Src/pressure_font{font_size}.c',font_c)
     print('Font glyphs:',len(chars),'bitmap bytes:',len(bitmap))
