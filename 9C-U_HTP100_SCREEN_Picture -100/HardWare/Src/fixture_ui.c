@@ -131,7 +131,7 @@ static void start(lv_event_t *e) {
     last_rx=HAL_GetTick();
     lv_label_set_text(title,names[mode]); lv_label_set_text(status,"正在连接主机...");
     lv_label_set_text(details,mode==FX_INSPECT?"目标温度 42.5℃\n允许偏差 ±3℃\n连续稳定 2秒后合格":
-        mode==FX_CLEAR_MARKER?"仅清除 0x01-0x02\n写入 0xFFFF 并回读\n其他位置保持原值":"请连接耗材，等待操作完成");
+        mode==FX_CLEAR_MARKER?"使用标记 0x01-02\n超级标识 0x03-04\n均写为 0xFFFF 并回读":"请连接耗材，等待操作完成");
     lv_label_set_text(back_label,"取消并返回");
     lv_obj_add_flag(home,LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(page,LV_OBJ_FLAG_HIDDEN);
     transmit(FX_START);
@@ -232,7 +232,7 @@ void FixtureUi_Feed(const uint8_t *data,size_t size) {
             if(previous_state!=FX_PASS) FixtureBuzzer_Success();
             lv_label_set_text(status,mode==FX_INSPECT?"耗材正常": "成功");
             lv_label_set_text(details,mode==FX_INITIALIZE?"耗材初始化完成\n请拔出耗材\n自动等待下一件":mode==FX_DEMO?"演示耗材制作完成\n请拔出耗材\n自动等待下一件":
-                mode==FX_CLEAR_MARKER?"使用标记已清除\n0x01-02 = 0xFFFF\n请拔出耗材\n自动等待下一件":"温度连续稳定2秒\n已停止加热，请拔出耗材\n自动等待下一件");
+                mode==FX_CLEAR_MARKER?"标志位已清除\n0x01-02 = 0xFFFF\n0x03-04 = 0xFFFF\n请拔出，等待下一件":"温度连续稳定2秒\n已停止加热，请拔出耗材\n自动等待下一件");
         } else {
             const char *states[]={"待机","等待插入耗材","正在写入并回读校验","正在加热","温度达标\n正在稳定计时"};
             lv_label_set_text(status,states[state]);

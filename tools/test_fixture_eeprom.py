@@ -14,6 +14,7 @@ with path.open('rb') as f:
         if seg['p_type']=='PT_LOAD':u.mem_write(seg['p_vaddr'],seg.data())
     syms={s.name:s['st_value'] for s in e.get_section_by_name('.symtab').iter_symbols()}
 eeprom=bytearray(range(256));writes=[];fail_write=False;fail_read=False;bad_verify=False
+fail_write_register=None
 fail_register=None
 fail_device=None
 
@@ -26,7 +27,7 @@ def read(uc,a,n,d):
     if bad_verify and writes:data=bytes([data[0]^1])+data[1:]
     uc.mem_write(buf,data);finish()
 def write(uc,a,n,d):
-    if fail_write:finish(1);return
+    if fail_write or uc.reg_read(UC_ARM_REG_R2)==fail_write_register:finish(1);return
     addr=uc.reg_read(UC_ARM_REG_R2);sp=uc.reg_read(UC_ARM_REG_SP)
     buf,size=struct.unpack('<II',uc.mem_read(sp,8));data=bytes(uc.mem_read(buf,size))
     eeprom[addr:addr+size]=data;writes.append((addr,data));finish()
@@ -82,17 +83,22 @@ assert diag['flags']&8 and not diag['flags']&4,'Failed temperature read must inv
 assert not writes
 fail_device=None;fail_register=None
 eeprom[:]=bytes(range(256));eeprom[1:3]=b'\x00\x01';eeprom[3:5]=b'\x02\x02'
-before=bytes(eeprom);expected=bytearray(before);expected[1:3]=b'\xff\xff';writes.clear()
+before=bytes(eeprom);expected=bytearray(before);expected[1:5]=b'\xff'*4;writes.clear()
 assert call('EyeDriver_FixtureClearMarker')==0
-assert writes==[(1,b'\xff'),(2,b'\xff')] and eeprom==expected
-assert eeprom[:1]==before[:1] and eeprom[3:]==before[3:],'Only marker bytes may change'
+assert writes==[(1,b'\xff'),(2,b'\xff'),(3,b'\xff'),(4,b'\xff')] and eeprom==expected
+assert eeprom[:1]==before[:1] and eeprom[5:]==before[5:],'Only 01..04 may change'
 assert call('EyeDriver_FixtureCheckUsable')==0
 assert diagnostics()['marker']==0xFFFF
+assert diagnostics()['service']==0xFFFF
 writes.clear();fail_write=True;before=bytes(eeprom)
 assert call('EyeDriver_FixtureClearMarker')==6 and not writes and bytes(eeprom)==before
 fail_write=False;bad_verify=True;writes.clear()
 assert call('EyeDriver_FixtureClearMarker')==7 and writes==[(1,b'\xff')]
 bad_verify=False
+eeprom[1:5]=b'\x00\x01\x02\x02';writes.clear();fail_write_register=3
+assert call('EyeDriver_FixtureClearMarker')==6
+assert writes==[(1,b'\xff'),(2,b'\xff')] and eeprom[3:5]==b'\x02\x02'
+fail_write_register=None
 print('PASS: actual EEPROM driver: read-only probe, full FF initialization, demo only 03/04, write/verify errors, consumed flag never set.')
 print('PASS: diagnostic register/value/flags, EEPROM 03 failure, TMP112 raw 2B00, sensor 00 NACK and stale-data invalidation.')
-print('PASS: explicit marker-clear writes ONLY 01/02=FFFF, preserves service/all other data, readback check, write and verify faults.')
+print('PASS: clear-marker writes ONLY 01..04=FF, verifies BOTH 16-bit fields, preserves all other bytes; service write and verify faults reported.')

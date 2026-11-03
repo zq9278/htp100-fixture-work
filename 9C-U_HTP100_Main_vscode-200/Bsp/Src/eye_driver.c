@@ -474,19 +474,20 @@ uint8_t EyeDriver_FixtureCheckUsable(void)
 uint8_t EyeDriver_FixtureClearMarker(void)
 {
     uint8_t erased=0xFFU,verify;
-    uint16_t marker;
+    uint16_t marker,service;
     g_identity_valid=false;
     eye_restart_debounce();
-    /* Dedicated user-selected action. Never erase the entire EEPROM or touch
-     * service/manufacturing data outside the original consumed field. */
-    for(uint16_t address=EYE_MARK_ADDRESS;address<EYE_MARK_ADDRESS+2U;++address) {
+    /* Explicitly clear consumed and super/service fields (01..04).
+     * Preserve address00 and all manufacturing data at 05 and above. */
+    for(uint16_t address=EYE_MARK_ADDRESS;address<EYE_SERVICE_ADDRESS+2U;++address) {
         if(i2c2_mem_write(EYE_EEPROM_ADDRESS,address,&erased,1U,80U)!=HAL_OK)
             return FX_WRITE_ERROR;
         vTaskDelay(pdMS_TO_TICKS(6U));
         if(i2c2_mem_read(EYE_EEPROM_ADDRESS,address,&verify,1U,80U)!=HAL_OK || verify!=erased)
             return FX_VERIFY_ERROR;
     }
-    return eye_read_u16(EYE_MARK_ADDRESS,&marker) && marker==0xFFFFU?FX_OK:FX_VERIFY_ERROR;
+    return eye_read_u16(EYE_MARK_ADDRESS,&marker) && marker==0xFFFFU &&
+           eye_read_u16(EYE_SERVICE_ADDRESS,&service) && service==0xFFFFU?FX_OK:FX_VERIFY_ERROR;
 }
 
 uint8_t EyeDriver_FixturePrepare(bool demo)

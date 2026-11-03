@@ -1,18 +1,17 @@
-2026-10-27 Fixture marker-clear verification
-PASS: Main and both New/Old screen Release builds.
-PASS: new independent mode4 clears only EEPROM bytes01/02 to FF, verifies per byte and full FFFF word; all other EEPROM bytes including service03/04 preserved.
-PASS: controller mode isolation, zero heat/full-erase/demo calls from marker clear, duplicate request suppression, removal rearm and write/verify faults.
-PASS: actual firmware EEPROM driver under mocked HAL confirms exact write addresses/data and unchanged other bytes.
-PASS: actual screen ELF rendering for both panels: four menu entries, marker-clear result with FFFF, normal buzzer/LED/result handling.
-PASS: existing inspection/diagnostic/overtemperature/batch tests and WS2812 driver regression.
-NOT PERFORMED: physical flashing or hardware bench testing.
+2026-10-27 Fixture marker-clear extension verification
+PASS: Main + New/Old screen Release builds.
+PASS: clear function writes exactly 01/02/03/04=FF and checks both marker=FFFF and service=FFFF; address00 and all bytes05+ preserved.
+PASS: actual EEPROM driver HAL simulation verifies four exact writes, per-byte/full-field readback and service-address write failure reporting.
+PASS: controller regression, no heat/demo/full erase in mode4, duplicate suppression and removal rearm.
+PASS: both screen ELFs render both FFFF fields in clear success view.
+NOT PERFORMED: physical flashing or hardware bench validation.
 
-HTP100_Fixture_Main.bin  SHA256 062c0392f2c28de7de7d259999cdbb611b02d114fa58c172d889f83143d7b379
-HTP100_Fixture_Main.elf  SHA256 df019db1470886019bc71acf9a2ce6b67b2cc51e189bc3921bf0ebc5ae9adfd8
-HTP100_Fixture_Main.hex  SHA256 a40350d26e3f3db19630f0d481081c916a55133c67b40a188409cfc184b6dc6c
-HTP100_Fixture_Screen_New.bin  SHA256 75ba23788011bb0195dec70b01be325977a0611105eba5fd53e1bdd988fd113e
-HTP100_Fixture_Screen_New.elf  SHA256 0587697ecff03f7bac68367541490ee682343175a87dc9c284765c5774056d96
-HTP100_Fixture_Screen_New.hex  SHA256 b7d0d4ffa0d88f00889b9d75ad37f30d79e570dd4a226fd9f769cfa1e276f0e1
-HTP100_Fixture_Screen_Old.bin  SHA256 f75bb09f34c0280db6b7b27100e1ef55d0f2b6a5ed39dcd6ceb944e641e8a172
-HTP100_Fixture_Screen_Old.elf  SHA256 69b644eb23f388131783307f996183399998cbc86aa01882e6f7a7b57c1a04fa
-HTP100_Fixture_Screen_Old.hex  SHA256 66bae056dc90b189578e835e60e2541e0398e0acf27bdfe9d9e40a16f7fc7360
+HTP100_Fixture_Main.bin  SHA256 1d9115986882122aceb374c1aab76974d02d3050071724401109053e11730464
+HTP100_Fixture_Main.elf  SHA256 ed8cba38da9d6ced1d86876c560fa45979fd51464db80d4da71d01fc5b1fb164
+HTP100_Fixture_Main.hex  SHA256 0ec5f9bd1e4d781d61774fb5fb52f94b67219d501c9d14b7e94111d1fae01838
+HTP100_Fixture_Screen_New.bin  SHA256 5b636864adc36baebf327e21e4d2731c06ae8c65141ae46b01a497df7267e354
+HTP100_Fixture_Screen_New.elf  SHA256 098f0b0bb4848f8f8644c8709a0a274a03c49257e1e294bdcee7f93c7e74f5ea
+HTP100_Fixture_Screen_New.hex  SHA256 00ab736e0cbface58fea90e2bba920f96941bfb242aaee54c9275b850e0a9946
+HTP100_Fixture_Screen_Old.bin  SHA256 dd9e83818e9b85a45c364fd45fe221ea7e839244c5516f81041aa66ec93ebbc9
+HTP100_Fixture_Screen_Old.elf  SHA256 906976d4aa7b3a9f5aa38607aa67724ab75f4cec74460083b65faa2c0409c4e9
+HTP100_Fixture_Screen_Old.hex  SHA256 805d3c6c841782931e9ef7568e560b40e836dde3fd2688e48e412bd319de83aa

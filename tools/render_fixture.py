@@ -148,6 +148,6 @@ assert buzzer_starts==before_beep+1
 details=struct.unpack('<I',u.mem_read(symbols['details'],4))[0]
 call('lv_label_get_text',details)
 text=bytes(u.mem_read(u.reg_read(UC_ARM_REG_R0),220)).split(b'\0')[0].decode('utf-8')
-assert '使用标记已清除' in text and '0xFFFF' in text
+assert '标志位已清除' in text and '0x01-02 = 0xFFFF' in text and '0x03-04 = 0xFFFF' in text
 print('PASS: actual LVGL menu/results/reset, repeated PASS suppression, two-beep timing, next-item alert, cancel acknowledgement.')
 print('PASS: fourth marker-clear menu entry and successful FFFF readback view.')
