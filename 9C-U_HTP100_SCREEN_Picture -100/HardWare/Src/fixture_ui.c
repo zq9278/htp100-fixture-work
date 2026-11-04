@@ -94,7 +94,7 @@ static void diagnostic_open(lv_event_t *e) {
         "其他值表示已报废\n服务字段 [0x03-04]\n读取 %s\n该字段不决定报废\n\n"
         "TMP112 器件 0x48\n温度寄存器 0x00\n原始数据 %s\n末次温度 %s\n"
         "此处温度未扣补偿\n有效范围 -40~125℃\n"
-        "加热目标 43.00℃\n合格窗口 ±3℃\n连续稳定要求 2.00秒\n本次最长 %u.%02u秒\n"
+        "加热目标 43.00℃\n持续PID控温\n不自动判定合格\n保留计数 %u.%02u秒\n"
         "本次检测 %lu.%u秒\n超温要求 ≥44℃ 5秒\n本次连续 %u.%02u秒\n\n"
         "PWM故障检查\nTIM14_CH1 加热输出\n非耗材寄存器错误\n\n"
         "通信失败不等于数值错\n无有效读值不会当作0\n检测全程不改写使用标记",
@@ -130,7 +130,7 @@ static void start(lv_event_t *e) {
     diagnostic_available(false);
     last_rx=HAL_GetTick();
     lv_label_set_text(title,names[mode]); lv_label_set_text(status,"正在连接主机...");
-    lv_label_set_text(details,mode==FX_INSPECT?"目标温度 42.5℃\n允许偏差 ±3℃\n连续稳定 2秒后合格":
+    lv_label_set_text(details,mode==FX_INSPECT?"目标温度 42.5℃\n持续PID控温\n不自动判定合格":
         mode==FX_CLEAR_MARKER?"使用标记 0x01-02\n超级标识 0x03-04\n均写为 0xFFFF 并回读":"请连接耗材，等待操作完成");
     lv_label_set_text(back_label,"取消并返回");
     lv_obj_add_flag(home,LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(page,LV_OBJ_FLAG_HIDDEN);
@@ -236,6 +236,8 @@ void FixtureUi_Feed(const uint8_t *data,size_t size) {
         } else {
             const char *states[]={"待机","等待插入耗材","正在写入并回读校验","正在加热","温度达标\n正在稳定计时"};
             lv_label_set_text(status,states[state]);
+            if(mode==FX_INSPECT && (state==FX_HEATING || state==FX_STABLE))
+                lv_label_set_text(status,"PID控温中");
             if(previous_state==FX_PASS || previous_state==FX_FAIL) {
                 lv_label_set_text(back_label,"取消并返回");
                 if(mode!=FX_INSPECT) lv_label_set_text(details,"已复位，请插入下一件耗材");
@@ -243,12 +245,11 @@ void FixtureUi_Feed(const uint8_t *data,size_t size) {
             if(mode==FX_INSPECT) {
                 int16_t raw=(int16_t)Fx_Get16(f+10);
                 char text[160];
-                if(raw==FX_TEMP_INVALID) snprintf(text,sizeof(text),"目标温度 42.5℃\n等待温度数据\n稳定时间 0.0 / 2.0秒");
+                if(raw==FX_TEMP_INVALID) snprintf(text,sizeof(text),"目标温度 42.5℃\n等待温度数据\n持续PID控温");
                 else {
                     int display=(int)raw-50; /* Display excludes the 0.5C compensation. */
-                    snprintf(text,sizeof(text),"目标温度 42.5℃\n当前温度 %s%d.%02d℃\n稳定时间 %u.%u / 2.0秒",
-                        display<0?"-":"",(display<0?-display:display)/100,(display<0?-display:display)%100,
-                        Fx_Get16(f+14)/1000,(Fx_Get16(f+14)%1000)/100);
+                    snprintf(text,sizeof(text),"目标温度 42.5℃\n当前温度 %s%d.%02d℃\n持续PID控温",
+                        display<0?"-":"",(display<0?-display:display)/100,(display<0?-display:display)%100);
                 }
                 lv_label_set_text(details,text);
             }

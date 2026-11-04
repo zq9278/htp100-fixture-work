@@ -25,4 +25,4 @@ u.reg_write(UC_ARM_REG_SP,0x200F0000);u.reg_write(UC_ARM_REG_LR,0x8001)
 u.emu_start(main|1,0x8000,count=50000000)
 result=u.reg_read(UC_ARM_REG_R0)
 assert result==0,f'C assertion failed at line {result}'
-print('PASS: ARM C state machine, stability/wrap, all 3 batch modes, removal debounce/rearm, cancel/link disarm, no repeated item writes, fault exits and stream recovery.')
+print('PASS: ARM C continuous PID beyond 120s, no inspection verdict/write, timer wrap, batch writes/removal/rearm, cancel/link disarm, 44C/5s safety and fault exits, stream recovery.')

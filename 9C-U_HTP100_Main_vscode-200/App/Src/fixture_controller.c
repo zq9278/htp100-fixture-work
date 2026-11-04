@@ -133,7 +133,6 @@ void Fixture_Tick(void) {
             last_heat=now; eye=io->probe();
             uint8_t usable=eye?io->check_usable():FX_REMOVED;
             if(usable!=FX_OK) finish(usable);
-            else if(now-started>=FIXTURE_HEAT_TIMEOUT_MS) finish(FX_TIMEOUT);
             else {
                 measured=NAN;
                 bool ok=io->heater(FIXTURE_TARGET_C,&measured);
@@ -147,16 +146,11 @@ void Fixture_Tick(void) {
                     } else over_temp_pending=false;
                     if(over_temp_pending && now-over_temp_started>=FIXTURE_OVER_TEMP_CONFIRM_MS) {
                         finish(FX_OVER_TEMP);
-                    } else if(fabsf(measured-FIXTURE_TARGET_C)<=FIXTURE_TOLERANCE_C) {
-                        if(!in_band) { in_band=true; band_started=now; }
-                        state=FX_STABLE;
-                        uint32_t stable_ms=now-band_started;
-                        if(stable_ms>FIXTURE_STABLE_MS) stable_ms=FIXTURE_STABLE_MS;
-                        if(stable_ms>best_stable_ms) best_stable_ms=(uint16_t)stable_ms;
-                        /* Do not announce PASS during the 5s overtemperature
-                         * confirmation window, even inside the +/-3C band. */
-                        if(now-band_started>=FIXTURE_STABLE_MS && !over_temp_pending) finish(FX_OK);
-                    } else { in_band=false; state=FX_HEATING; }
+                    } else {
+                        /* Inspection is continuous PID operation, not a verdict.
+                         * Keep safety faults active without a pass timer/deadline. */
+                        in_band=false; state=FX_HEATING;
+                    }
                 }
             }
         }

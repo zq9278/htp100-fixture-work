@@ -43,32 +43,30 @@ static void step(uint32_t ms){clock_ms+=ms;frame(FX_HEARTBEAT,transaction,functi
 int main(void){
     CHECK(Fx_Crc((const uint8_t *)"123456789",9)==0x4B37);
     reset(FX_INSPECT);CHECK(last[7]==FX_HEATING && writes==0);
-    for(unsigned i=0;i<14;i++)step(150);
-    CHECK(last[7]==FX_STABLE && powered && writes==0);
-    step(150);CHECK(last[7]==FX_PASS && !powered && writes==0 && Fx_Get16(last+14)==2000);
-    CHECK(led_state==FX_PASS);
-    unsigned old=heats;step(1000);CHECK(heats==old); /* no automatic retest */
-    reset(FX_INSPECT);for(unsigned i=0;i<10;i++)step(150);
-    temperature=39.9f;step(150);CHECK(last[7]==FX_HEATING && Fx_Get16(last+14)==0);
-    temperature=40.0f;for(unsigned i=0;i<14;i++)step(150);
-    CHECK(last[7]==FX_STABLE);step(150);CHECK(last[7]==FX_PASS);
+    for(unsigned i=0;i<30;i++)step(150);
+    CHECK(last[7]==FX_HEATING && powered && writes==0 && Fx_Get16(last+14)==0);
+    CHECK(led_state==FX_HEATING);
+    unsigned old=heats;step(1000);CHECK(heats>old && powered);
+    temperature=39.9f;step(150);CHECK(last[7]==FX_HEATING && powered);
+    temperature=43.0f;for(unsigned i=0;i<30;i++)step(150);
+    CHECK(last[7]==FX_HEATING && powered && writes==0);
     reset(FX_INSPECT);present=false;step(150);CHECK(last[8]==FX_REMOVED && !powered);
     reset(FX_INSPECT);temperature=NAN;step(150);CHECK(last[8]==FX_TEMP_COMM && !powered);
     /* Exact threshold, exact 5s boundary, and no premature PASS while pending. */
     reset(FX_INSPECT);temperature=44.0f;step(150);
-    CHECK(last[8]==FX_OK && last[7]==FX_STABLE);
+    CHECK(last[8]==FX_OK && last[7]==FX_HEATING);
     for(unsigned i=0;i<4;i++)step(1000);
-    step(850);CHECK(last[8]==FX_OK && last[7]==FX_STABLE); /* 4850ms */
+    step(850);CHECK(last[8]==FX_OK && last[7]==FX_HEATING); /* 4850ms */
     step(150);CHECK(last[8]==FX_OVER_TEMP && !powered); /* 5000ms */
     /* A transient overshoot can recover; below 44C clears confirmation. */
     reset(FX_INSPECT);temperature=44.1f;step(150);step(1000);
     temperature=43.0f;step(150);CHECK(last[8]==FX_OK);
-    step(1000);CHECK(last[7]==FX_PASS && !powered);
+    step(1000);CHECK(last[7]==FX_HEATING && powered);
     reset(FX_INSPECT);temperature=44.5f;step(150);step(1000);step(1000);step(1000);
     temperature=39.9f;step(150);CHECK(last[7]==FX_HEATING && last[8]==FX_OK);
     temperature=44.5f;step(150);
     for(unsigned i=0;i<4;i++)step(1000);
-    step(850);CHECK(last[8]==FX_OK && last[7]==FX_STABLE);
+    step(850);CHECK(last[8]==FX_OK && last[7]==FX_HEATING);
     step(150);CHECK(last[8]==FX_OVER_TEMP && !powered);
     /* Unsigned clock rollover must not shorten the 5s confirmation. */
     reset(FX_INSPECT);clock_ms=0xFFFFF000U;Fixture_Init(&port);
@@ -80,7 +78,7 @@ int main(void){
     reset(FX_INSPECT);step(150);frame(FX_CANCEL,transaction,function);CHECK(last[8]==FX_CANCELLED && !powered);
     reset(FX_INSPECT);step(150);Fixture_PowerLost();query();CHECK(last[8]==FX_POWER_LOST && !powered);
     reset(FX_INSPECT);temperature=30;for(unsigned i=0;i<801;i++)step(150);
-    CHECK(last[8]==FX_TIMEOUT && !powered && writes==0);
+    CHECK(last[8]==FX_OK && last[7]==FX_HEATING && powered && writes==0);
     reset(FX_INITIALIZE);CHECK(last[7]==FX_PASS && writes==1 && heats==0);
     for(unsigned i=0;i<20;i++)query();CHECK(writes==1); /* retries do not erase again */
     reset(FX_DEMO);CHECK(last[7]==FX_PASS && writes==1 && heats==0);
@@ -101,13 +99,13 @@ int main(void){
     uint8_t bad[FX_FRAME_SIZE];memcpy(bad,f,sizeof(f));bad[4]++; /* invalid CRC ignored */
     Fixture_Feed(bad,sizeof(bad));query();CHECK(Fx_Get16(last+4)==transaction);
     reset(FX_INSPECT);step(150); /* stale/other transaction cannot cancel active job */
-    frame(FX_CANCEL,transaction-1,function);query();CHECK(last[7]==FX_STABLE && powered);
+    frame(FX_CANCEL,transaction-1,function);query();CHECK(last[7]==FX_HEATING && powered);
     /* Tick wrap must preserve consecutive stability timing. */
     clock_ms=0xFFFFFF00U;Fixture_Init(&port);transaction++;frame(FX_START,transaction,function);Fixture_Tick();
-    for(unsigned i=0;i<15;i++)step(150);CHECK(last[7]==FX_PASS && !powered);
+    for(unsigned i=0;i<15;i++)step(150);CHECK(last[7]==FX_HEATING && powered);
     /* Finished consumables stay latched. A brief contact glitch cannot repeat
      * a write; removal for 600ms rearms only the selected function. */
-    for(uint8_t selected=FX_INITIALIZE;selected<=FX_INSPECT;++selected) {
+    for(uint8_t selected=FX_INITIALIZE;selected<=FX_DEMO;++selected) {
         reset(selected);
         if(selected==FX_INSPECT) for(unsigned i=0;i<15;i++)step(150);
         CHECK(last[7]==FX_PASS && !powered);

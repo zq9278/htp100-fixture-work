@@ -94,7 +94,13 @@ def feed(state,reason,temp,stable,*,flags=7,device=0x48,reg=0,hal=0,error=0,mark
     struct.pack_into('<IHH',f,32,120000 if reason==5 else 5150,5000 if reason==4 else 0,stable)
     f[40]=1
     f+=struct.pack('<H',crc(f));u.mem_write(0x1000,bytes(f));call('FixtureUi_Feed',0x1000,len(f))
-feed(4,0,4300,1500);snapshot('稳定计时')
+feed(3,0,4300,0);snapshot('持续PID控温')
+status_ptr=struct.unpack('<I',u.mem_read(symbols['status'],4))[0]
+call('lv_label_get_text',status_ptr)
+assert bytes(u.mem_read(u.reg_read(UC_ARM_REG_R0),80)).split(b'\0')[0].decode('utf-8')=='PID控温中'
+for _ in range(20):feed(3,0,4300,0)
+assert buzzer_starts==0,'Continuous PID must not announce PASS'
+# Legacy terminal frames remain decodable; current G0 never passes inspection.
 feed(5,0,4300,2000);snapshot('检测合格')
 assert buzzer_starts==1
 stops=buzzer_stops
