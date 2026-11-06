@@ -73,8 +73,16 @@ void Fixture_Feed(const uint8_t *data,size_t size) {
     while(size--) {
         if(!Fx_Parse(&parser,*data++,f)) continue;
         uint16_t incoming=Fx_Get16(f+4);
+        if(f[3]==FX_SELECT && (f[6]==FX_NONE || f[6]==FX_PRESSURE)) {
+            /* A mode handover always disarms heating and automatic batch rearm.
+             * Acknowledge only after outputs are off; no consumable writes. */
+            io->off();seq=incoming;have_seq=true;mode=f[6];state=FX_IDLE;reason=FX_OK;
+            rearm_after_removal=removal_pending=continuous_wait=in_band=over_temp_pending=false;
+            measured=NAN;started=last_link=io->now();reset_diagnostics();report();continue;
+        }
         if(f[3]==FX_START) {
-            if(have_seq && incoming==seq) { report(); continue; } /* Never repeat EEPROM writes. */
+            if(mode==FX_PRESSURE) { report();continue; }
+            if(have_seq && incoming==seq && f[6]==mode) { report(); continue; } /* Never repeat EEPROM writes. */
             if(active()) { report(); continue; }
             io->off(); seq=incoming; have_seq=true; mode=f[6]; reason=FX_OK;
             measured=NAN; in_band=false; eye=false;
@@ -159,3 +167,4 @@ void Fixture_Tick(void) {
     update_status_led();
 }
 void Fixture_PowerLost(void) { if(active() || rearm_after_removal) finish(FX_POWER_LOST); else io->off(); }
+bool Fixture_PressureSelected(void) { return mode==FX_PRESSURE && state==FX_IDLE; }

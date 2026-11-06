@@ -70,7 +70,7 @@ file(GLOB_RECURSE USER_UI_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/demos/slk/*.c
 )
 list(FILTER USER_UI_SOURCES EXCLUDE REGEX "/images_all\\.c$")
-# Fixture-only build; retain original files in the project for reference.
+# Combined fixture + pressure screens; original treatment UI stays excluded.
 list(FILTER USER_HARDWARE_SOURCES EXCLUDE REGEX "/(screen|ui-myself)\\.c$")
 set(USER_UI_SOURCES "")
 
@@ -91,6 +91,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/HardWare/Inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../9C-U_HTP100_Main_vscode-200/App/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/src
     ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/porting
@@ -161,3 +162,8 @@ if(CMAKE_OBJCOPY)
     )
   endforeach()
 endif()
+
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE PRESSURE_SCREEN_BUILD=1 COMBINED_FIXTURE_BUILD=1)
+target_compile_definitions(${OLD_SCREEN_TARGET} PRIVATE PRESSURE_SCREEN_BUILD=1 COMBINED_FIXTURE_BUILD=1)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
+target_link_options(${OLD_SCREEN_TARGET} PRIVATE -u _printf_float)

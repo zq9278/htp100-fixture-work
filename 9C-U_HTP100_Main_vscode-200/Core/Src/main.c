@@ -93,6 +93,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  ScreenUart_SetPower(true);
   MX_DMA_Init();
   MX_USART2_UART_Init();
   /* Arm the screen RX DMA at the earliest safe point. Incoming 0x1050 frames

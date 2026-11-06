@@ -1,0 +1,36 @@
+HTP100 combined fixture verification - 2026-11-06 Asia/Shanghai
+Branch: 综合工装
+Sources: 耗材初始化检测 31f4bff + 压力传感器检测 4d7a1cd
+
+PASS: Release GCC/CMake/Ninja build, G0 + both new/old H7 panels.
+G0 FLASH 65168 bytes, RAM/reserved heap+stack 23672 bytes of 36KiB.
+H7 new FLASH 1472212 bytes, old 1472228 bytes, DTCM 23032, AXI 256.
+PASS: Existing fixture ARM tests: continuous PID, overtemperature, removal,
+      batch operations, clear marker, timeout/link cancellation, diagnostics.
+PASS: Existing pressure ARM tests: continuous peak, clear/restart/idempotency,
+      calibration fit+verification, UART queues, EEPROM rollback and timer wrap.
+PASS: Combined production G0 cores and actual framed router on ARM:
+      heater off before pressure handover, rejection of late fixture START,
+      pressure mutation denied outside pressure mode, all four consumable tools,
+      link-loss heater shutdown, valid embedded frame cannot cross protocols,
+      polarity magnitude/sign/peak reset, duplicate suppression, busy rejection,
+      saved reversed scale survives reboot; exit cancels pending tare.
+PASS: Actual new/old H7 production LVGL ELF connected to real combined G0 cores:
+      main menu, inspection with heater simulation, cancel/return, pressure entry,
+      zero, six-point fit, three complete verification cycles, save/readback,
+      continuous peak+clear, keyboard/input checks, polarity and parameter save,
+      return to main menu/re-entry, failed verification blocks save, retry/cancel,
+      expired data and disconnection.
+      Withheld handover ACK keeps the overlay active; receiving the matching
+      G0 confirmation releases it and returns to the correct main screen.
+PASS: Actual combined G0 ELF eye EEPROM HAL simulation:
+      initialization, demo, clear ONLY 01..04, verification and error paths.
+PASS: 11 PC pytest cases including Qt GUI -> production ARM measurement core,
+      live/peak mmHg/N/g, clear/restart, polarity readback, fit invalidation,
+      EEPROM reboot, stale display and reconnection.
+PASS: All three combined HEX checksum/address/vector checks and J-Link DryRun.
+PASS: Packaged combined PC EXE startup, hidden offscreen, process tree cleaned.
+PASS: ELF has no legacy StorageDriver_Init/erase/program marker/motor runtime.
+
+No physical probe or serial port opened. No real sensor, charge, heater,
+installation accuracy or hardware flash test performed. Previews are simulations.

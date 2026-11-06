@@ -20,4 +20,5 @@ void Fixture_Init(const FixturePort *port);
 void Fixture_Feed(const uint8_t *data,size_t size);
 void Fixture_Tick(void);
 void Fixture_PowerLost(void);
+bool Fixture_PressureSelected(void);
 #endif

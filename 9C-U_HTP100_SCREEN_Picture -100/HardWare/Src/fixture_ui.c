@@ -4,6 +4,7 @@
 #include "lvgl.h"
 #include "main.h"
 #include "usart.h"
+#include "combined_ui.h"
 #include <stdio.h>
 LV_FONT_DECLARE(fixture_font28);
 LV_FONT_DECLARE(fixture_font36);
@@ -154,6 +155,7 @@ static lv_obj_t *button(lv_obj_t *parent,const char *text,int y,lv_event_cb_t cb
     lv_obj_align(b,LV_ALIGN_TOP_MID,0,y); lv_obj_add_event_cb(b,cb,LV_EVENT_CLICKED,(void *)data);
     lv_obj_t *l=lv_label_create(b); lv_label_set_text(l,text); lv_obj_center(l); return l;
 }
+static void open_pressure(lv_event_t *e) { (void)e;CombinedUi_OpenPressure(); }
 void FixtureUi_Init(void) {
     FixtureBuzzer_Stop();
     parser.used=0; seq=(uint16_t)HAL_GetTick(); mode=FX_NONE;
@@ -169,12 +171,13 @@ void FixtureUi_Init(void) {
         lv_obj_set_style_bg_opa(panels[i],LV_OPA_TRANSP,0);
         lv_obj_set_style_border_width(panels[i],0,0); lv_obj_set_style_pad_all(panels[i],0,0);
     }
-    label(home,names[0],48,48);
-    label(home,"请选择需要执行的功能",110,42);
-    button(home,names[1],180,start,FX_INITIALIZE);
-    button(home,names[2],280,start,FX_DEMO);
-    button(home,names[3],380,start,FX_INSPECT);
-    button(home,names[4],480,start,FX_CLEAR_MARKER);
+    label(home,names[0],20,48);
+    label(home,"请选择需要执行的功能",80,42);
+    button(home,names[1],140,start,FX_INITIALIZE);
+    button(home,names[2],235,start,FX_DEMO);
+    button(home,names[3],330,start,FX_INSPECT);
+    button(home,names[4],425,start,FX_CLEAR_MARKER);
+    button(home,"压力计",520,open_pressure,0);
     title=label(page,"",35,60); status=label(page,"",125,125);
     details=label(page,"",270,230);
     lv_obj_set_style_text_font(details,&fixture_font36,0);

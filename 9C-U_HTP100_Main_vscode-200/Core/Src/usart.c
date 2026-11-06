@@ -24,6 +24,7 @@
 #include "stm32g0xx_hal.h"
 #include "stm32g0xx_hal_uart.h"
 #include "board_port.h"
+#include "pc_uart.h"
 
 #if 0
 
@@ -167,7 +168,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN USART1_MspInit 1 */
-
+    HAL_NVIC_SetPriority(USART1_IRQn,3,0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
   /* USER CODE END USART1_MspInit 1 */
   }
   else if(uartHandle->Instance==USART2)
@@ -376,7 +378,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance == USART2) {
     Board_UartErrorFromIsr();
+  } else if(huart->Instance==USART1) {
+    PcUart_ErrorFromIsr();
   }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if(huart->Instance==USART1) PcUart_RxFromIsr();
 }
 
 /* USER CODE END 1 */

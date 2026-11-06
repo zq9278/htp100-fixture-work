@@ -122,6 +122,7 @@ extern TIM_HandleTypeDef htim17;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart1;
 extern TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN EV */
@@ -432,6 +433,8 @@ void USART2_IRQHandler(void)
 
   /* USER CODE END USART2_IRQn 1 */
 }
+
+void USART1_IRQHandler(void) { HAL_UART_IRQHandler(&huart1); }
 
 /* USER CODE BEGIN 1 */
 //extern osSemaphoreId_t BUTTON_SEMAPHOREHandle;

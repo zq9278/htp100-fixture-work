@@ -32,7 +32,7 @@
 /* USER CODE BEGIN Includes */
 #include "Lcd_int.h"
 #include "ui.h"
-#include "fixture_ui.h"
+#include "combined_ui.h"
 #include "touch.h"
 // #include "touch.h"
 #include "lv_port_indev_template.h"
@@ -190,7 +190,7 @@ int main(void)
   lv_port_indev_init();
   // screen_finish_startup_language_preload();
   // ui_init(); /* Original treatment UI disabled. */
-  FixtureUi_Init();
+  CombinedUi_Init();
   screen_boot_progress(7U);
   //HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);//start PWM for Beep
   /* Keep PA11/TIM1_CH4 dark until the first UI frame is drawn. No wait
@@ -221,11 +221,11 @@ int main(void)
         for (uint8_t batch = 0U; batch < 4U; ++batch) {
             received = ScreenUart_Read(serial_data, sizeof(serial_data));
             if (received == 0U) break;
-            FixtureUi_Feed(serial_data, received);
+            CombinedUi_Feed(serial_data, received);
         }
         GT911_Process();
         /* Legacy treatment UI, popups and protocol ticks are disabled. */
-        FixtureUi_Tick();
+        CombinedUi_Tick();
         if (!backlight_started) {
             lv_obj_invalidate(lv_scr_act());
             lv_obj_invalidate(lv_layer_top());

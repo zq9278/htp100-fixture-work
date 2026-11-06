@@ -8,6 +8,8 @@
 bool ScreenUart_Init(void);
 void ScreenUart_SetPower(bool enabled);
 bool ScreenUart_Write(const uint8_t *data, uint16_t length);
+/* Service the pressure-monitor DMA transmit queue from its owning task. */
+void ScreenUart_TxTick(void);
 size_t ScreenUart_Read(uint8_t *destination, size_t capacity);
 void ScreenUart_RxEventFromIsr(uint16_t length);
 void ScreenUart_ErrorFromIsr(void);

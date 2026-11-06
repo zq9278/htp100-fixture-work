@@ -10,3 +10,7 @@ __pycache__/
 
 # Local flashing logs
 /交付/flash_logs/
+
+# Combined firmware and validation outputs
+**/build/Combined*/
+/交付/综合工装/flash_logs/

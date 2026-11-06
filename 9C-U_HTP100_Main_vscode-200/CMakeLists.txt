@@ -25,15 +25,15 @@ file(GLOB APP_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Bsp/Src/*.c"
 )
 
-# Fixture runtime only. Original treatment, pressure, storage/counters, motor,
-# and legacy communication modules remain in the tree but are disabled.
-# WS2812 is enabled exclusively for solid fixture result/status colors.
+# Combined fixture: retain consumable tools and the raw ADS1220 pressure engine.
+# Legacy treatment/motor/counters stay excluded; storage is used through byte
+# access only, without legacy initialization or program-triggered erase.
 set(APP_SOURCES
     App/Src/app_main.c App/Src/app_hooks.c App/Src/app_log.c
-    App/Src/fixture_controller.c
+    App/Src/fixture_controller.c App/Src/pressure_monitor.c
     Bsp/Src/fixture_board.c Bsp/Src/eye_driver.c Bsp/Src/treatment_hw.c
     Bsp/Src/screen_uart.c Bsp/Src/charger_driver.c Bsp/Src/bq27441_gauge.c
-    Bsp/Src/ws2812_driver.c
+    Bsp/Src/ws2812_driver.c Bsp/Src/ads1220_driver.c Bsp/Src/storage_driver.c Bsp/Src/pc_uart.c
 )
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${APP_SOURCES})
@@ -53,3 +53,5 @@ add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_PROJECT_NAME}.hex
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_PROJECT_NAME}.bin
 )
+
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE PRESSURE_MONITOR_BUILD=1 COMBINED_FIXTURE_BUILD=1)

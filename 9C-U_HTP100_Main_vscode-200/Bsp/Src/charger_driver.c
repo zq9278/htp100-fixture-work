@@ -25,6 +25,9 @@
 #define BQ25895_CHARGE_4208MV      0x5EU
 #define BQ25895_TIMER_NO_WATCHDOG  0x8DU
 
+static bool g_gauge_valid;
+bool ChargerDriver_GaugeValid(void) { return g_gauge_valid; }
+
 typedef struct {
     uint8_t address;
     uint8_t value;
@@ -103,6 +106,7 @@ bool ChargerDriver_Read(bool *charging, bool *full, uint16_t *soc,
     uint16_t measured_soc;
     uint16_t measured_millivolts;
 
+    g_gauge_valid = false;
     if (charging == NULL || full == NULL || soc == NULL || millivolts == NULL ||
         HAL_I2C_Mem_Read(&hi2c1, BQ25895_ADDRESS, BQ25895_REG_STATUS,
                          I2C_MEMADD_SIZE_8BIT, &charger, 1U, 50U) != HAL_OK ||
@@ -125,6 +129,7 @@ bool ChargerDriver_Read(bool *charging, bool *full, uint16_t *soc,
     }
 
     if (Bq27441Gauge_Read(&measured_soc, &measured_millivolts)) {
+        g_gauge_valid = true;
         last_valid_soc = measured_soc;
         last_valid_millivolts = measured_millivolts;
     }

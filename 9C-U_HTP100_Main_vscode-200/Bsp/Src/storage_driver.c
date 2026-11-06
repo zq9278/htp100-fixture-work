@@ -24,8 +24,10 @@ static uint16_t g_counters[3];
 /* This value is restored whenever the ELF/HEX is downloaded. The linker keeps
  * it in the last, otherwise unused, MCU Flash page. Runtime code reads the
  * address through volatile so the compiler cannot fold the value to a constant. */
+#ifndef PRESSURE_MONITOR_BUILD
 __attribute__((used, section(".program_marker"), aligned(8)))
 const uint64_t g_storage_program_marker_image = STORAGE_PROGRAM_PENDING_MAGIC;
+#endif
 
 static bool storage_erase_main(void);
 static bool storage_initialize_screen_presets(void);
