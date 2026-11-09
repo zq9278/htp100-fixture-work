@@ -91,12 +91,26 @@ file(GLOB_RECURSE UI_SOURCES CONFIGURE_DEPENDS
 list(FILTER UI_SOURCES EXCLUDE REGEX "/demos/slk/images_all\\.c$")
 list(FILTER UI_SOURCES EXCLUDE REGEX "/demos/slk/images/images_all\\.c$")
 
+option(HTP_COMBINED_SIM "Preview the combined fixture firmware UI" ON)
+if(HTP_COMBINED_SIM)
+    set(UI_SOURCES
+        ../HardWare/Src/combined_ui.c
+        ../HardWare/Src/fixture_ui.c
+        ../HardWare/Src/pressure_ui.c
+        ../HardWare/Src/pressure_client.c
+        sim/desktop/fixture_shim.c
+    )
+    file(GLOB FIXTURE_FONTS CONFIGURE_DEPENDS "../HardWare/Src/fixture_font*.c" "../HardWare/Src/pressure_font*.c")
+    list(APPEND UI_SOURCES ${FIXTURE_FONTS})
+else()
+    list(APPEND UI_SOURCES sim/desktop/desktop_shim.c)
+endif()
+
 add_executable(slk_sdl_sim
     ${LVGL_SOURCES}
     ${UI_SOURCES}
     sim/desktop/main.c
-    sim/desktop/desktop_shim.c
-)
+ )
 
 target_compile_definitions(slk_sdl_sim PRIVATE
     LV_CONF_INCLUDE_SIMPLE
@@ -120,5 +134,14 @@ if(WIN32 AND EXISTS "${SDL2_BUNDLED_MINGW_ROOT}/bin/SDL2.dll")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SDL2_BUNDLED_MINGW_ROOT}/bin/SDL2.dll"
         "$<TARGET_FILE_DIR:slk_sdl_sim>/SDL2.dll"
+    )
+endif()
+
+if(HTP_COMBINED_SIM)
+    target_compile_definitions(slk_sdl_sim PRIVATE HTP_COMBINED_SIM)
+    target_include_directories(slk_sdl_sim BEFORE PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sim/desktop/fixture_include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../HardWare/Inc
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../9C-U_HTP100_Main_vscode-200/App/Inc
     )
 endif()

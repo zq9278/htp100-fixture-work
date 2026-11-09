@@ -1,20 +1,15 @@
-$gcc = "C:/Program Files/JetBrains/CLion 262.4852.39/bin/mingw/bin/gcc.exe"
-$gxx = "C:/Program Files/JetBrains/CLion 262.4852.39/bin/mingw/bin/g++.exe"
-
-if (!(Test-Path $gcc) -or !(Test-Path $gxx)) {
-    throw "MinGW toolchain not found at CLion bundled path."
+param([switch]$ProductUi)
+$ErrorActionPreference = 'Stop'
+$gcc = (Get-Command gcc -ErrorAction SilentlyContinue).Source
+if (!$gcc) {
+    $gcc = Get-ChildItem 'C:/Program Files/JetBrains/CLion*/bin/mingw/bin/gcc.exe' | Select-Object -Last 1 -ExpandProperty FullName
 }
-
-$env:PATH = "C:\Program Files\JetBrains\CLion 262.4852.39\bin\mingw\bin;$env:PATH"
-
-if (Test-Path build-sdl) {
-    Remove-Item -Recurse -Force build-sdl
-}
-
-cmake -S . -B build-sdl -G Ninja -DCMAKE_C_COMPILER="$gcc" -DCMAKE_CXX_COMPILER="$gxx"
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-cmake --build build-sdl
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-Start-Process -FilePath ".\build-sdl\slk_sdl_sim.exe"
+if (!$gcc) { throw 'MinGW gcc not found. Add MinGW bin to PATH.' }
+$env:PATH = (Split-Path $gcc) + ';' + $env:PATH
+$build = Join-Path $PSScriptRoot 'build-combined-sdl'
+$combined = if ($ProductUi) { 'OFF' } else { 'ON' }
+cmake -S $PSScriptRoot -B $build -G Ninja "-DCMAKE_C_COMPILER=$gcc" "-DHTP_COMBINED_SIM=$combined"
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+cmake --build $build -j 8
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+Start-Process -FilePath (Join-Path $build 'slk_sdl_sim.exe') -WindowStyle Hidden

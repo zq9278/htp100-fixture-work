@@ -29,7 +29,7 @@ static uint32_t notice_started;
 static void notice(const char *value) {
     ui_notice=value;notice_started=HAL_GetTick();lv_label_set_text(message_label,value);
 }
-static bool transmit(const uint8_t *p,uint16_t n) { return HAL_UART_Transmit(&huart1,(uint8_t *)p,n,20)==HAL_OK; }
+static bool transmit(const uint8_t *p,uint16_t n) { return CombinedUi_Ready() && HAL_UART_Transmit(&huart1,(uint8_t *)p,n,20)==HAL_OK; }
 static const PressureClientPort port={HAL_GetTick,transmit};
 static lv_obj_t *text(lv_obj_t *parent,const char *value,int x,int y,int w,int h,const lv_font_t *font) {
     lv_obj_t *o=lv_label_create(parent);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);
@@ -217,7 +217,7 @@ void PressureUi_Tick(void) {
     if(now-rendered<100U) return;
     rendered=now;
     const PressureClientState *s=PressureClient_Status();char b[160];
-    bool linked=s->connected && s->config_valid,free=linked && !s->pending;
+    bool linked=CombinedUi_Ready() && s->connected && s->config_valid,free=linked && !s->pending;
     const PcWizard *w=&s->wizard;bool wizard_active=PressureClient_WizardActive();
     const char *quality=!(s->flags&PM_VALID)?"传感器无有效数据":!(s->flags&PM_ZEROED)?"请先空载去皮":
         s->flags&PM_CALIBRATED?(s->config.dirty?"RAM校准未保存":"已校准·EEPROM已保存"):"未校准，当前为估算值";

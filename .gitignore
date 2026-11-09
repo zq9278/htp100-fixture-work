@@ -14,3 +14,5 @@ __pycache__/
 # Combined firmware and validation outputs
 **/build/Combined*/
 /交付/综合工装/flash_logs/
+
+/9C-U_HTP100_SCREEN_Picture -100/lvgl/build-combined-sdl/

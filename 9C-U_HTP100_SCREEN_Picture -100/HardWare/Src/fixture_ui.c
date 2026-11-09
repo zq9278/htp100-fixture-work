@@ -114,6 +114,7 @@ static void result_style(uint8_t result) {
     lv_obj_set_style_text_font(status,terminal?&fixture_font48:&fixture_font36,0);
 }
 static void transmit(uint8_t type) {
+    if(type==FX_START && !CombinedUi_Ready()) return;
     uint8_t f[FX_FRAME_SIZE]; Fx_Frame(f,type,seq,mode); Fx_Seal(f);
     (void)HAL_UART_Transmit(&huart1,f,sizeof(f),20U); last_tx=HAL_GetTick();
 }

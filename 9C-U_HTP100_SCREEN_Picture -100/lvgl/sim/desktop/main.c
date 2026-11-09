@@ -1,7 +1,12 @@
 #define SDL_MAIN_HANDLED
 
 #include "lvgl.h"
+#ifdef HTP_COMBINED_SIM
+#include "combined_ui.h"
+void FixtureSim_Tick(void);
+#else
 #include "ui.h"
+#endif
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -61,7 +66,7 @@ static int init_sdl(void)
     }
 
     window = SDL_CreateWindow(
-        "SLK01 LVGL SDL Simulator",
+        "HTP100 LVGL Simulator",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         SIM_HOR_RES,
@@ -181,6 +186,15 @@ int main(int argc, char **argv)
 
     lv_init();
     init_lvgl_port();
+#ifdef HTP_COMBINED_SIM
+    CombinedUi_Init();
+    FixtureSim_Tick();
+    screen_name = getenv("SLK_SCREEN");
+    if(screen_name && strcmp(screen_name,"pressure")==0) {
+        CombinedUi_OpenPressure();
+        FixtureSim_Tick();
+    }
+#else
     screen_name = getenv("SLK_SCREEN");
     if(screen_name != NULL && screen_name[0] != '\0') {
         ui_debug_init_screen(screen_name);
@@ -195,6 +209,7 @@ int main(int argc, char **argv)
             ui_lang_set(UI_LANG_ZH);
         }
     }
+#endif
     capture_path = getenv("SLK_CAPTURE_BMP");
     if(capture_path != NULL && capture_path[0] != '\0') {
         const char *capture_ms = getenv("SLK_CAPTURE_MS");
@@ -209,6 +224,10 @@ int main(int argc, char **argv)
         last_tick = now;
         process_events();
         lv_tick_inc(elapsed);
+#ifdef HTP_COMBINED_SIM
+        FixtureSim_Tick();
+        CombinedUi_Tick();
+#endif
         lv_timer_handler();
         runtime_ms += elapsed;
         if(capture_after_ms > 0 && runtime_ms >= capture_after_ms) {

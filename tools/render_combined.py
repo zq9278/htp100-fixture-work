@@ -119,7 +119,23 @@ def advance(ms,grams=0):
         call('CombinedUi_Tick')
 
 call('lv_init');call('lv_port_disp_init');call('CombinedUi_Init')
-advance(250);snapshot('00-主界面')
+call('lv_disp_get_scr_act',0)
+assert u.reg_read(UC_ARM_REG_R0)==pointer('fixture_screen'),'Boot must load the consumable menu'
+assert pointer('pressure_screen')==0,'Boot must not create or load the pressure page'
+# Withhold all G0 replies: navigation must still work, commands remain locked.
+call('CombinedUi_Ready');assert not u.reg_read(UC_ARM_REG_R0)
+call('CombinedUi_OpenPressure')
+call('lv_disp_get_scr_act',0)
+assert u.reg_read(UC_ARM_REG_R0)==pointer('pressure_screen'),'Offline pressure preview must open'
+call('CombinedUi_Tick')
+call('CombinedUi_ExitPressure')
+call('lv_disp_get_scr_act',0)
+assert u.reg_read(UC_ARM_REG_R0)==pointer('fixture_screen'),'Offline return must open the menu'
+advance(250)
+call('CombinedUi_Ready');assert u.reg_read(UC_ARM_REG_R0)
+call('lv_disp_get_scr_act',0)
+assert u.reg_read(UC_ARM_REG_R0)==pointer('fixture_screen'),'Startup acknowledgement must retain the menu'
+snapshot('00-主界面')
 # Find actual buttons by their labels, without depending on link-time static symbols.
 def click_label(parent,label):
     call('lv_obj_get_child_cnt',pointer(parent));count=u.reg_read(UC_ARM_REG_R0)
@@ -190,7 +206,10 @@ snapshot('15-极性反转')
 click('pm_persist_button');advance(200,-100)
 click('pm_polarity_button');advance(300,100)
 # Return handshakes with G0, then re-enter from the actual menu.
-click_label('live','主界面');advance(350,0);snapshot('16-返回主界面')
+click_label('live','主界面');advance(350,0)
+call('lv_disp_get_scr_act',0)
+assert u.reg_read(UC_ARM_REG_R0)==pointer('fixture_screen'),'Pressure return must restore consumable menu'
+snapshot('16-返回主界面')
 click_label('home','压力计');advance(350,0)
 # A separate failed run must visibly disable save; retry begins fresh checks.
 click('pm_cal_button');click('pm_next_button');advance(100,0);click('pm_next_button');advance(100,0)
@@ -210,10 +229,11 @@ assert '--.-' in label_text('value_label')
 assert '---.---' in label_text('load_label'),'Stale data must clear N and g too'
 now_ms+=3000;call('CombinedUi_Tick');snapshot('07-两板通讯断开')
 call('CombinedUi_ExitPressure')
-# Withhold the queued acknowledgement: the H7 must keep the handover overlay,
-# rather than silently entering another tool when G0's state is unknown.
+# Withhold the acknowledgement: navigation works but hardware commands stay locked.
 now_ms+=4500;call('CombinedUi_Tick')
-assert '未确认' in label_text('handover_text')
+assert '未连接' in label_text('handover_text')
+call('CombinedUi_Ready');assert not u.reg_read(UC_ARM_REG_R0)
+call('lv_disp_get_scr_act',0);assert u.reg_read(UC_ARM_REG_R0)==pointer('fixture_screen')
 call('lv_obj_has_flag',pointer('handover'),1);assert not u.reg_read(UC_ARM_REG_R0)
 snapshot('17-切换未确认')
 data=cable.read(cable.in_waiting);u.mem_write(0x1000,data);call('CombinedUi_Feed',0x1000,len(data))

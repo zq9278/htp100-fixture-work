@@ -20,3 +20,7 @@ python tools/render_combined.py --variant Old
 `-BuildHost` 额外打包 PC EXE；不带该参数只生成三套固件。测试在 ARM 仿真中运行生产核心及实际 H7 LVGL ELF，耗材 EEPROM 驱动测试仅替换物理 HAL 总线。实物烧录、传感器精度、安装受力及充电仍需台架复核。
 
 G0 主程序、模式切换、压力与耗材控制位于 `9C-U_HTP100_Main_vscode-200/App`；H7 入口与界面位于 `9C-U_HTP100_SCREEN_Picture -100/HardWare`。原两条分支保留。
+
+## 桌面 LVGL 预览
+
+运行 `powershell -ExecutionPolicy Bypass -File "9C-U_HTP100_SCREEN_Picture -100/lvgl/run_sdl.ps1"`，默认打开综合工装主界面，底部“压力计”进入压力检测页。仅模拟切换确认，不生成传感器数据。加 `-ProductUi` 可打开旧产品界面。
